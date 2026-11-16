@@ -1,0 +1,9 @@
+services:
+  sentinelle:
+    build: .
+    env_file: .env
+    environment:
+      SENTINEL_DATA: /data
+    volumes:
+      - ./data:/data
+    restart: "no"

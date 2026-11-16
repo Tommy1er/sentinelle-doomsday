@@ -1,0 +1,90 @@
+name: Sentinelle Doomsday (Pathé)
+on:
+  schedule:
+    # Every five minutes, offset from the top of the hour to reduce congestion.
+    - cron: '3-59/5 0-23 16-30 11 *'
+    - cron: '3-59/5 0-23 1-21 12 *'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Contrôler Pathé sans secrets, notification ni sauvegarde'
+        required: false
+        type: boolean
+        default: false
+      send_test_alerts:
+        description: 'Envoyer un test marqué TEST sur Telegram et Gmail'
+        required: false
+        type: boolean
+        default: false
+permissions:
+  contents: read
+  issues: write
+concurrency:
+  group: sentinelle-doomsday
+  cancel-in-progress: false
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Stop after 21 December 2026 (UTC)
+        id: period
+        run: |
+          if [[ "$(date -u +%F)" > "2026-12-21" ]]; then
+            echo 'active=false' >> "$GITHUB_OUTPUT"
+            echo 'Surveillance terminée.' >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo 'active=true' >> "$GITHUB_OUTPUT"
+          fi
+      - name: Checkout
+        if: steps.period.outputs.active == 'true'
+        uses: actions/checkout@v4
+      - name: Python
+        if: steps.period.outputs.active == 'true'
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+      - name: Dependencies
+        if: steps.period.outputs.active == 'true'
+        run: |
+          python -m pip install --disable-pip-version-check -r requirements.txt
+          python -m playwright install --with-deps chromium
+      - name: Check Pathé and send alerts
+        if: steps.period.outputs.active == 'true'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          GMAIL_USER: ${{ secrets.GMAIL_USER }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+          GMAIL_TO: ${{ secrets.GMAIL_TO }}
+          DRY_RUN: ${{ inputs.dry_run }}
+          SEND_TEST_ALERTS: ${{ inputs.send_test_alerts }}
+        run: |
+          if [ "$DRY_RUN" = "true" ]; then
+            python sentinel.py --dry-run
+            exit $?
+          fi
+          python - <<'PY'
+          from notifications import configuration_errors
+          missing = configuration_errors()
+          if missing:
+              raise SystemExit('Secrets manquants : ' + ', '.join(missing))
+          PY
+          python github_state.py pull
+          set +e
+          test_status=0
+          if [ "$SEND_TEST_ALERTS" = "true" ]; then
+            python sentinel.py --test-alert
+            test_status=$?
+          fi
+          python sentinel.py
+          status=$?
+          set -e
+          python github_state.py push
+          if [ "$test_status" -ne 0 ]; then
+            exit "$test_status"
+          fi
+          exit $status
