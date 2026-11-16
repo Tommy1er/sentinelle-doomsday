@@ -37,8 +37,15 @@ function sentinelleUniqueStrings_(value, field) {
  */
 function sentinelleNormalize_(payload) {
   if (!sentinellePlainObject_(payload)) throw new Error("Invalid root JSON object");
+  // Fail closed on unexpected API wrappers or error payloads. HTTP 200 is
+  // not proof that the endpoint returned a valid programming document.
+  var unknownKeys = Object.keys(payload).filter(function(key) {
+    return !/^cinema-[a-z0-9-]+$/.test(key);
+  });
+  if (unknownKeys.length) throw new Error("Unexpected API root schema");
   var cinema = payload[DOOMSDAY_SENTINEL.cinemaKey];
-  if (cinema === undefined || cinema === null) {
+  if (cinema === null) throw new Error("Null target cinema data");
+  if (cinema === undefined) {
     return { status: "NO_PROGRAMME_FOR_CINEMA", cinema: DOOMSDAY_SENTINEL.cinemaKey, days: [] };
   }
   if (!sentinellePlainObject_(cinema) || !sentinellePlainObject_(cinema.days)) {
@@ -171,10 +178,30 @@ function sentinelleCheckOnce() {
 function sentinelleEnqueue_(props, subject, body) {
   var outbox = sentinelleReadJsonProperty_(props, DOOMSDAY_SENTINEL.outboxKey, []);
   if (!Array.isArray(outbox)) throw new Error("Corrupt outbox");
-  if (outbox.length >= 15) throw new Error("Pending alert queue full, investigate delivery");
-  // Unique ID only; never include credentials in logs.
-  outbox.push({ id: new Date().getTime() + "-" + Math.random().toString(36).slice(2, 8),
-                subject: subject, body: body, pending: ["telegram", "gmail"] });
+  // Apps Script enforces 9 KB per property value. Keep the complete
+  // official URL at the end even if a long change list is truncated.
+  var maxBody = 1200;
+  if (body.length > maxBody) {
+    body = body.slice(0, 900) + "\n\n… Détails supplémentaires : consulter Pathé.\n" +
+      DOOMSDAY_SENTINEL.publicPage;
+  }
+  subject = subject.slice(0, 140);
+  // When every channel is down, do not brick the detector once its queue is
+  // saturated. Coalesce the newest item while retaining the older pending items.
+  // A re-armed Telegram channel receives an updated event, not the old item.
+  if (outbox.length >= 4) {
+    var latest = outbox[outbox.length - 1];
+    latest.id = new Date().getTime() + "-" + Math.random().toString(36).slice(2, 8);
+    latest.subject = subject;
+    latest.body = "⚠️ Plusieurs évolutions se sont produites pendant une panne d'alertes.\n" + body;
+    latest.pending = ["telegram", "gmail"];
+  } else {
+    outbox.push({ id: new Date().getTime() + "-" + Math.random().toString(36).slice(2, 8),
+                  subject: subject, body: body, pending: ["telegram", "gmail"] });
+  }
+  if (JSON.stringify(outbox).length > 8000) {
+    throw new Error("Alert outbox exceeds bounded storage budget");
+  }
   props.setProperty(DOOMSDAY_SENTINEL.outboxKey, JSON.stringify(outbox));
 }
 
