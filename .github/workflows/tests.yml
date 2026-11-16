@@ -23,3 +23,17 @@ jobs:
         run: python -m pip install --disable-pip-version-check -r requirements.txt
       - name: Run offline tests
         run: python -m unittest discover -s tests -v
+
+      - name: Check Google Apps Script syntax and JSON parsing fixtures
+        run: |
+          node --check < tools/google_apps_script_value_audit.gs
+          node - <<'JS'
+          const fs = require('node:fs');
+          const vm = require('node:vm');
+          const context = { console };
+          vm.createContext(context);
+          vm.runInContext(fs.readFileSync('tools/google_apps_script_value_audit.gs', 'utf8'), context);
+          if (context.testPatheValueInspectorFixture() !== true) {
+            process.exit(1);
+          }
+          JS
