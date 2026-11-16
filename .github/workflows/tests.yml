@@ -55,3 +55,6 @@ jobs:
 
       - name: Offline end-to-end Apps Script alert tests
         run: node tests/test_google_apps_script_sentinel.js
+
+      - name: Sentinel adversarial reliability fixtures
+        run: node tests/test_google_apps_script_resilience.js
