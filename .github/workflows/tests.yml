@@ -52,3 +52,6 @@ jobs:
             process.exit(1);
           }
           JS
+
+      - name: Offline end-to-end Apps Script alert tests
+        run: node tests/test_google_apps_script_sentinel.js
