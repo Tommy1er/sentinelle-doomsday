@@ -58,3 +58,15 @@ jobs:
 
       - name: Sentinel adversarial reliability fixtures
         run: node tests/test_google_apps_script_resilience.js
+
+      - name: Multi-film Pathé cohort audit fixtures (offline)
+        run: |
+          node --check < tools/google_apps_script_film_cohort_audit.gs
+          node - <<'JS'
+          const fs = require('node:fs');
+          const vm = require('node:vm');
+          const scope = { console };
+          vm.createContext(scope);
+          vm.runInContext(fs.readFileSync('tools/google_apps_script_film_cohort_audit.gs','utf8'),scope);
+          if (scope.testPatheCohortAuditFixture() !== true) process.exit(1);
+          JS
