@@ -37,3 +37,18 @@ jobs:
             process.exit(1);
           }
           JS
+
+      - name: Validate cinema-scoped sentinel and Telegram setup (offline)
+        run: |
+          node --check < tools/google_apps_script_sentinel.gs
+          node --check < tools/google_apps_script_telegram_setup.gs
+          node - <<'JS'
+          const fs = require('node:fs');
+          const vm = require('node:vm');
+          const context = { console };
+          vm.createContext(context);
+          vm.runInContext(fs.readFileSync('tools/google_apps_script_sentinel.gs', 'utf8'), context);
+          if (context.testSentinelleParserFixture() !== true) {
+            process.exit(1);
+          }
+          JS
