@@ -141,6 +141,25 @@ function sentinelleCheckOnce() {
     var parsed = JSON.parse(rawText);
     var current = sentinelleNormalize_(parsed);
     var old = sentinelleReadJsonProperty_(props, DOOMSDAY_SENTINEL.stateKey, null);
+    // A single temporary empty response must not erase a previously observed
+    // programme. Positive new dates still alert immediately.
+    var emptyKey = "DOOMSDAY_MONITOR_EMPTY_STREAK_V1";
+    if (old && old.days.length > 0 && current.days.length === 0) {
+      var emptyStreak = Number(props.getProperty(emptyKey) || "0") + 1;
+      props.setProperty(emptyKey, String(emptyStreak));
+      if (emptyStreak < 2) {
+        props.setProperty(DOOMSDAY_SENTINEL.lastOkKey, new Date().toISOString());
+        props.setProperty(DOOMSDAY_SENTINEL.failureKey, "0");
+        var pendingDeliveries = sentinelleFlushOutbox_(props);
+        var unconfirmed = { checkedAt: new Date().toISOString(),
+          status: "PENDING_EMPTY_CONFIRMATION", dates: old.days.length,
+          change: false, attemptedNotifications: pendingDeliveries };
+        console.log(JSON.stringify(unconfirmed));
+        return unconfirmed;
+      }
+    } else {
+      props.setProperty(emptyKey, "0");
+    }
     var delta = sentinelleDiff_(old, current);
     // Store snapshot before attempting either channel. If one channel fails, outbox retains it.
     if (delta) {
@@ -199,8 +218,19 @@ function sentinelleEnqueue_(props, subject, body) {
     outbox.push({ id: new Date().getTime() + "-" + Math.random().toString(36).slice(2, 8),
                   subject: subject, body: body, pending: ["telegram", "gmail"] });
   }
-  if (JSON.stringify(outbox).length > 8000) {
-    throw new Error("Alert outbox exceeds bounded storage budget");
+  var encoded = JSON.stringify(outbox);
+  // Count actual UTF-8 bytes, not JavaScript UTF-16 code units. When Google
+  // Script Properties would exceed its 9-KB/value cap, preserve the latest
+  // actionable alert rather than permanently blocking all future checks.
+  var byteLength = encodeURIComponent(encoded).replace(/%[0-9A-F]{2}/g, "x").length;
+  if (byteLength > 8000) {
+    var last = outbox[outbox.length - 1];
+    last.body = "⚠️ Plusieurs alertes accumulées pendant une panne de livraison.\n" +
+      "Dernière évolution : " + body.slice(0, 400) +
+      "\nConsulter immédiatement : " + DOOMSDAY_SENTINEL.publicPage;
+    last.pending = ["telegram", "gmail"];
+    outbox = [last];
+    console.log("Pending alerts coalesced to remain within Script Properties quota");
   }
   props.setProperty(DOOMSDAY_SENTINEL.outboxKey, JSON.stringify(outbox));
 }
