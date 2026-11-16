@@ -92,6 +92,7 @@ def fetch():
         status = resp.status if resp else None
         html_title = page.title()
         browser.close()
+        logging.info("Page Pathé : HTTP=%s titre=%r film_présent=%s", status, html_title, bool(FILM_RX.search(raw)))
         if status and status >= 400:
             raise RuntimeError(f"HTTP {status}")
         if not FILM_RX.search(raw):
@@ -205,6 +206,8 @@ def check(dry_run=False):
     except Exception as exc:
         failures = int(prior.get("failures", 0)) + 1
         logging.error("Contrôle web échoué n=%s : %s", failures, type(exc).__name__)
+        if dry_run and isinstance(exc, RuntimeError):
+            logging.error("Diagnostic du contrôle public : %s", str(exc)[:300])
         event = {"at": now, "error_type": type(exc).__name__, "consecutive_failures": failures}
         prior["failures"] = failures
         if failures in (3, 12) and not dry_run:
