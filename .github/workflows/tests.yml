@@ -70,3 +70,6 @@ jobs:
           vm.runInContext(fs.readFileSync('tools/google_apps_script_film_cohort_audit.gs','utf8'),scope);
           if (scope.testPatheCohortAuditFixture() !== true) process.exit(1);
           JS
+
+      - name: Real-schema detailed showtime sale-window signals (offline)
+        run: node tests/test_google_apps_script_showtime_signal.js
