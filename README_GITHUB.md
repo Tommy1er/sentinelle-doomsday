@@ -35,6 +35,11 @@ Les runners GitHub sont temporaires : un fichier `data/last_state.json` sur un r
 - Désactiver le workflow après la période de sortie du film.
 # Vérifications avant activation
 
+La planification reste en pause tant que la variable de dépôt
+`SENTINEL_ENABLED` ne vaut pas `true`. Les tests manuels restent disponibles.
+N'activer cette variable qu'après avoir configuré les cinq secrets et validé
+la réception des deux notifications.
+
 Le workflow propose `dry_run: true` pour vérifier l'accès à Pathé depuis GitHub
 sans utiliser les secrets ni modifier l'état. Exécuter ce mode avant d'activer
 les alertes. Avec `send_test_alerts: true`, un échec d'envoi entraîne désormais
