@@ -90,3 +90,6 @@ jobs:
           node --check < tools/google_apps_script_imax_audit.gs
           node --check < tools/google_apps_script_pilot_metrics.gs
           node tests/test_google_apps_script_pilot_metrics.js
+
+      - name: IMAX day-tag bias and detailed-room fallback (offline)
+        run: node tests/test_google_apps_script_imax_audit.js
