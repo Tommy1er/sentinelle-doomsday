@@ -18,7 +18,8 @@ function sentinelleAuditImaxOnce() {
   if(!catalogue || !Array.isArray(catalogue.shows))throw new Error("Unexpected catalogue");
   var films=catalogue.shows.filter(function(f){return f && typeof f.slug==="string" &&
     /^[a-z0-9-]{5,100}$/.test(f.slug);}).slice(0,40);
-  var errors=[],tags={},candidates=[],responses=UrlFetchApp.fetchAll(films.map(function(f){
+  var errors=[],tags={},candidates=[],fallbackPairs=[],fallbackSeen={},roomNames={},detailedRows=0,
+    responses=UrlFetchApp.fetchAll(films.map(function(f){
     return request("/api/show/"+f.slug+"/cinemas");
   }));
   responses.forEach(function(r,i){
@@ -32,24 +33,47 @@ function sentinelleAuditImaxOnce() {
         list.forEach(function(tag){tags[String(tag)]=true;});
         if(list.some(function(tag){return /imax/i.test(String(tag));}))
           candidates.push({slug:films[i].slug,title:films[i].title,date:date,tags:list});
+        // A film may use room/format metadata without an IMAX day-level tag.
+        // Probe at most one upcoming date per film, and only when the tagged
+        // cohort is empty, to bound one-shot discovery traffic.
+        if(date>=now.slice(0,10) && !fallbackSeen[films[i].slug]) {
+          fallbackSeen[films[i].slug]=true;
+          fallbackPairs.push({slug:films[i].slug,title:films[i].title,date:date,tags:list});
+        }
       });
     }catch(e){errors.push({stage:"cinemas",slug:films[i].slug,type:String(e.message).slice(0,80)});}
   });
-  var selected=candidates.slice(0,8),sessions=[];
+  var discoveryMode=candidates.length?"day_tags":"fallback_detail_sample";
+  var selected=candidates.length?candidates.slice(0,8):fallbackPairs.slice(0,8),sessions=[];
   if(selected.length)UrlFetchApp.fetchAll(selected.map(function(c){
     return request("/api/show/"+c.slug+"/showtimes/"+cinema+"/"+c.date);
   })).forEach(function(r,i){
     var c=selected[i];
     try {
-      var raw=parse(r,300000),signals=patheShowtimeSignalsV1(raw,now);
-      raw.forEach(function(s){
-        var signal=signals.filter(function(x){return x.bookingUrl===s.refCmd;})[0];
-        if(!(Array.isArray(s.tags)&&s.tags.some(function(t){return /imax/i.test(t);})) &&
+      var raw=parse(r,300000);
+      if(!Array.isArray(raw))throw new Error("Unexpected detailed response");
+      raw.forEach(function(s) {
+        if(!s || typeof s!=="object" || Array.isArray(s))return;
+        detailedRows++;
+        var labels=Array.isArray(s.tags)?s.tags:[];
+        if(s.auditoriumName!==undefined && s.auditoriumName!==null)
+          roomNames[String(s.auditoriumName).slice(0,60)]=true;
+        if(!labels.some(function(t){return /imax/i.test(String(t));}) &&
            !/imax/i.test(String(s.auditoriumName||"")))return;
-        sessions.push({slug:c.slug,title:c.title,time:s.time,version:s.version,tags:s.tags,
+        var signal=null;
+        try {
+          // A partially published session can have a missing sale window:
+          // preserve discovery data even if the strict booking classifier
+          // correctly declines to certify it as commercially bookable.
+          var classified=patheShowtimeSignalsV1([s],now);
+          signal=classified.length?classified[0]:null;
+        }catch(_) {}
+        sessions.push({slug:c.slug,title:c.title,time:s.time||null,
+          version:s.version||null,tags:labels.slice(0,20),
           auditoriumName:s.auditoriumName||null,auditoriumId:s.auditoriumId||null,
-          auditoriumCapacity:s.auditoriumCapacity||null,status:s.status,
-          bookingUrl:signal?signal.bookingUrl:null,apiProposed:!!(signal&&signal.bookingProposedByApi),
+          auditoriumCapacity:s.auditoriumCapacity||null,
+          status:s.status||null,bookingUrl:signal?signal.bookingUrl:null,
+          apiProposed:!!(signal&&signal.bookingProposedByApi),
           imaxLaserConfirmed:false});
       });
     }catch(e){errors.push({stage:"details",slug:c.slug,date:c.date,type:String(e.message).slice(0,80)});}
@@ -57,7 +81,9 @@ function sentinelleAuditImaxOnce() {
   var result={checkedAtUtc:now,durationMs:Date.now()-started,catalogueCount:catalogue.shows.length,
     filmsChecked:films.length,catalogueTruncated:catalogue.shows.length>films.length,
     cinema:cinema,observedProgrammeTags:Object.keys(tags).sort(),imaxFilmDates:candidates.length,
+    discoveryMode:discoveryMode,uninspectedFallbackPairs:Math.max(0,fallbackPairs.length-selected.length),
     detailDatesChecked:selected.length,detailDatesNotChecked:Math.max(0,candidates.length-selected.length),
+    detailedRowsExamined:detailedRows,observedAuditoriumNames:Object.keys(roomNames).sort().slice(0,50),
     sessions:sessions.slice(0,24),errors:errors,notificationsSent:0,heartbeatSent:false};
   console.log(JSON.stringify(result));return result;
 }
