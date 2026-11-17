@@ -75,7 +75,54 @@ function sentinelleInstrumentedCheckOnce() {
 }
 /** Candidate for a future explicitly installed pilot trigger. Not run automatically. */
 function sentinelleInstrumentedPilotCycle() {
+  var props=PropertiesService.getScriptProperties();
+  var raw=props.getProperty("DOOMSDAY_PILOT_WINDOW_V1");
+  if(!raw)throw new Error("Pilot window not prepared");
+  var window=JSON.parse(raw),now=Date.now();
+  if(window.status==="PREPARED") {
+    window.status="RUNNING";window.startedAtUtc=new Date(now).toISOString();
+    window.endsAtUtc=new Date(now+86400000).toISOString();
+    window.baselineCount=Number(props.getProperty(DOOMSDAY_METRICS_V1.prefix+"COUNT")||"0");
+    props.setProperty("DOOMSDAY_PILOT_WINDOW_V1",JSON.stringify(window));
+  }
+  if(window.status!=="RUNNING"&&window.status!=="EXPIRED")throw new Error("Pilot window invalid");
+  var end=Date.parse(window.endsAtUtc);
+  if(!isFinite(end))throw new Error("Pilot end invalid");
+  if(now>=end) {
+    if(window.status==="RUNNING") {
+      sentinelleEnqueue_(props,"[DOOMSDAY] Pilote 24 h terminé",
+        "La fenêtre de collecte du pilote est terminée. Les lectures Pathé et heartbeats sont arrêtés."+
+        "\\nRevoir les métriques, supprimer le déclencheur et mettre Healthchecks en pause."+
+        "\\nUne alerte DOWN après cette fin programmée correspond à cet arrêt attendu, pas à une panne Pathé.");
+      window.status="EXPIRED";
+      props.setProperty("DOOMSDAY_PILOT_WINDOW_V1",JSON.stringify(window));
+    }
+    var delivery=sentinelleFlushOutbox_(props);
+    console.log(JSON.stringify({pilot:"EXPIRED",endsAtUtc:window.endsAtUtc,delivery:delivery}));
+    return {pilot:"EXPIRED",delivery:delivery};
+  }
+  if(window.status!=="RUNNING")throw new Error("Expired pilot cannot restart");
   return sentinelleInstrumentedRun_(function(){return sentinelleRunWithWatchdog();});
+}
+/** Prepare only; no trigger or heartbeat created. First pilot cycle starts the clock. */
+function sentinellePreparePilot24h() {
+  var props=PropertiesService.getScriptProperties();
+  var receipt=JSON.parse(props.getProperty("DOOMSDAY_RECEIPT_TEST_V1")||"null");
+  if(!receipt||receipt.acknowledged!==true)throw new Error("Telegram recipient acknowledgement required");
+  var old=JSON.parse(props.getProperty("DOOMSDAY_PILOT_WINDOW_V1")||"null");
+  if(old)throw new Error("Pilot window already exists; review before replacement");
+  var result=sentinelleInstrumentedCheckOnce();
+  if(!sentinelleHealthyForWatchdog_(result))throw new Error("Pilot preflight degraded");
+  var window={status:"PREPARED",preparedAtUtc:new Date().toISOString(),
+    startedAtUtc:null,endsAtUtc:null,baselineCount:null};
+  props.setProperty("DOOMSDAY_PILOT_WINDOW_V1",JSON.stringify(window));
+  console.log(JSON.stringify({pilot:window,triggerCreated:false,heartbeatSent:false}));
+  return window;
+}
+function sentinellePilotWindowStatus() {
+  var raw=PropertiesService.getScriptProperties().getProperty("DOOMSDAY_PILOT_WINDOW_V1");
+  var result=raw?JSON.parse(raw):null;
+  console.log(JSON.stringify({pilot:result}));return result;
 }
 function sentinellePilotMetrics() {
   var result=sentinelleMetricsSummary_(PropertiesService.getScriptProperties(),Date.now());
