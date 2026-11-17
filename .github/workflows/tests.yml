@@ -98,3 +98,6 @@ jobs:
         run: |
           node --check < tools/google_apps_script_telegram_receipt.gs
           node tests/test_google_apps_script_telegram_receipt.js
+
+      - name: Fixed pilot window boundary (offline)
+        run: node tests/test_google_apps_script_pilot_window.js
