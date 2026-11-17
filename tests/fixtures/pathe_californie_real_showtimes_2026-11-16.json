@@ -1,0 +1,36 @@
+[
+  {
+    "time": "2026-11-16 17:30:00",
+    "version": "vf-ma",
+    "tags": [
+      "DEFAULT",
+      "pmr"
+    ],
+    "status": "available",
+    "reservabilityStart": "2026-10-16T16:52:03+00:00",
+    "reservabilityEnd": "2026-11-16T17:50:00+00:00",
+    "isMovie": true,
+    "refCmd": "https://s.pathe.ma/fr/V5401S53300/booking",
+    "auditoriumName": "4",
+    "auditoriumCapacity": "108",
+    "endTime": "2026-11-16 19:51:00",
+    "specialShowtimeDetails": null
+  },
+  {
+    "time": "2026-11-16 22:30:00",
+    "version": "vostfr-ma",
+    "tags": [
+      "DEFAULT",
+      "pmr"
+    ],
+    "status": "available",
+    "reservabilityStart": "2026-10-16T16:52:03+00:00",
+    "reservabilityEnd": "2026-11-16T22:50:00+00:00",
+    "isMovie": true,
+    "refCmd": "https://s.pathe.ma/fr/V5401S53301/booking",
+    "auditoriumName": "4",
+    "auditoriumCapacity": "108",
+    "endTime": "2026-11-17 00:51:00",
+    "specialShowtimeDetails": null
+  }
+]
