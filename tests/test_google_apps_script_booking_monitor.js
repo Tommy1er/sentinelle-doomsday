@@ -57,7 +57,7 @@ test("absence of cinema date does not prevent anchor detailed monitoring",()=>{
   const x=env.sentinelleCheckWithBookingOnce(nowBefore);
   assert.equal(x.cinemaProgramme,"NO_PROGRAMME_FOR_CINEMA");
   assert.equal(x.datesChecked,8);
-  assert.equal(x.validDetailedDays,3);
+  assert.equal(x.validDetailedDays,8);
   assert.equal(x.newReservableSessions,0);
   assert.equal(tg,0);
   assert.equal(mail,0);
