@@ -84,3 +84,9 @@ jobs:
 
       - name: External watchdog acknowledgement and health policy (offline)
         run: node tests/test_google_apps_script_watchdog.js
+
+      - name: Bounded pilot instrumentation and audit syntax (offline)
+        run: |
+          node --check < tools/google_apps_script_imax_audit.gs
+          node --check < tools/google_apps_script_pilot_metrics.gs
+          node tests/test_google_apps_script_pilot_metrics.js
