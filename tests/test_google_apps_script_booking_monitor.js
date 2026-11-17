@@ -48,7 +48,7 @@ const p=(status,data)=>details.set(sessionDate,{status,data});
 const session={
   time:"2026-12-16 20:30:00",version:"vostfr-ma",tags:["DEFAULT"],
   status:"available",reservabilityStart:"2026-11-17T10:00:00+00:00",
-  reservabilityEnd:"2026-12-16T21:00:00+00:00",refCmd:"https://s.pathe.ma/fr/V5401S70001/booking",
+  reservabilityEnd:"2026-12-16T21:00:00+00:00",refCmd:"https://s.pathe.ma/fr/V98765S70001/booking",
   auditoriumName:"IMAX",auditoriumCapacity:"200",isMovie:true
 };
 function test(label,callback){callback();console.log("PASS "+label);}
@@ -56,7 +56,7 @@ test("absence of cinema date does not prevent anchor detailed monitoring",()=>{
   p(200,[]);
   const x=env.sentinelleCheckWithBookingOnce(nowBefore);
   assert.equal(x.cinemaProgramme,"NO_PROGRAMME_FOR_CINEMA");
-  assert.equal(x.datesChecked,3);
+  assert.equal(x.datesChecked,8);
   assert.equal(x.validDetailedDays,3);
   assert.equal(x.newReservableSessions,0);
   assert.equal(tg,0);
@@ -72,7 +72,7 @@ test("opening instant with identical cinema API and detailed metadata alerts onc
   const x=env.sentinelleCheckWithBookingOnce(nowAfter);
   assert.equal(x.newReservableSessions,1);
   assert.equal(mail,1);assert.equal(tg,1);
-  assert.match(bodyByChannel[0][1],/V5401S70001\/booking/);
+  assert.match(bodyByChannel[0][1],/V98765S70001\/booking/);
   assert.match(bodyByChannel[0][1],/ne garantit pas de places/);
 });
 test("same open session does not trigger duplicate channel sends",()=>{
@@ -114,9 +114,21 @@ test("another identical IMAX polling cycle is quiet",()=>{
   let x=env.sentinelleCheckWithBookingOnce("2026-11-17T10:14:00Z");
   assert.equal(x.newReservableSessions,0);assert.equal(mail,3);assert.equal(tg,3);
 });
-test("all configured dates have strict coverage cap",()=>{
-  const days={};
-  for(let i=1;i<=20;i++)days["2026-12-"+String(i).padStart(2,"0")]={versions:["vf-ma"],tags:["DEFAULT"]};
-  assert.throws(()=>env.sentinelleDetailedDates_({days:Object.keys(days).map(d=>({date:d}))}),/coverage exceeds/);
+test("large calendars are rotated rather than stopping the whole monitor",()=>{
+  const dates=[];
+  for(let i=1;i<=28;i++)dates.push({date:"2026-11-"+String(i).padStart(2,"0")});
+  const selected=new Set();
+  let partial=0;
+  for(let cycle=0;cycle<5;cycle++){
+    const observed=env.sentinelleDetailedDates_({days:dates},props);
+    assert.ok(observed.length<=20);
+    assert.equal(observed.totalDates,36);
+    assert.ok(observed.skippedDates>0);
+    partial++;
+    observed.forEach(d=>selected.add(d));
+  }
+  assert.ok(partial>=1);
+  dates.forEach(d=>assert.ok(selected.has(d.date),"missed "+d.date));
+  assert.ok(selected.has("2026-12-15"),"preview anchor must be monitored");
 });
 console.log("PASS: 10 detailed booking integration checks (offline; no real notifications)");
