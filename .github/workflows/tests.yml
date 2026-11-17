@@ -81,3 +81,6 @@ jobs:
 
       - name: Persistent core and detail outage reminders (offline)
         run: node tests/test_google_apps_script_failure_reminders.js
+
+      - name: External watchdog acknowledgement and health policy (offline)
+        run: node tests/test_google_apps_script_watchdog.js
