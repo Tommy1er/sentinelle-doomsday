@@ -78,3 +78,6 @@ jobs:
         run: |
           node --check < tools/google_apps_script_booking_monitor.gs
           node tests/test_google_apps_script_booking_monitor.js
+
+      - name: Persistent core and detail outage reminders (offline)
+        run: node tests/test_google_apps_script_failure_reminders.js
