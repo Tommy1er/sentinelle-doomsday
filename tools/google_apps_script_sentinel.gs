@@ -178,7 +178,7 @@ function sentinelleCheckOnce() {
   } catch (error) {
     var failures = Number(props.getProperty(DOOMSDAY_SENTINEL.failureKey) || "0") + 1;
     props.setProperty(DOOMSDAY_SENTINEL.failureKey, String(failures));
-    if (failures === 3 || failures === 12) {
+    if (failures === 3 || (failures >= 12 && failures % 12 === 0)) {
       sentinelleEnqueue_(props, "⚠️ [DOOMSDAY] Surveillance en échec",
         "Le contrôle de Pathé a échoué " + failures + " fois consécutives.\n" +
         "Dernière réussite : " + (props.getProperty(DOOMSDAY_SENTINEL.lastOkKey) || "aucune") +
