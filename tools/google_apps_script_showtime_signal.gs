@@ -40,11 +40,17 @@ function patheShowtimeSignalsV1(payload, nowUtc) {
     var start=instant(s.reservabilityStart),end=instant(s.reservabilityEnd);
     if (start>=end) throw new Error("Invalid reservation window");
     var link=s.refCmd;
-    if (link!==null && link!==undefined && link!=="" &&
-        (typeof link!=="string" || !/^https:\/\/s\.pathe\.ma\/fr\/V5401S\d+\/booking$/.test(link))) {
-      throw new Error("Unverified booking URL or wrong cinema");
+    // V is a per-film internal Pathé identifier. It MUST NOT be pinned
+    // to the witnessed film V5401: Doomsday will have a different V-id.
+    // Host, locale, route and S-id shape remain restricted.
+    var match=typeof link==="string"
+      ? /^https:\/\/s\.pathe\.ma\/fr\/V([1-9]\d*)S([1-9]\d*)\/booking$/.exec(link)
+      : null;
+    if (link!==null && link!==undefined && link!=="" && !match) {
+      throw new Error("Unverified official Pathé booking URL shape");
     }
-    link=link||null;
+    link=match ? link : null;
+    var filmVid=match ? match[1] : null;
     var key=link || s.time+"|"+s.version+"|"+String(s.auditoriumName||"");
     if (seen[key]) throw new Error("Duplicate showtime identity");
     seen[key]=true;
@@ -53,7 +59,7 @@ function patheShowtimeSignalsV1(payload, nowUtc) {
       id:key,localTime:s.time,localTimeZone:"Africa/Casablanca",
       version:s.version,tags:tags,status:s.status,
       reservabilityStart:s.reservabilityStart,reservabilityEnd:s.reservabilityEnd,
-      bookingUrl:link,
+      bookingUrl:link,filmVid:filmVid,
       bookingProposedByApi:s.status==="available" && link!==null && now>=start && now<end,
       imaxByTag:tags.indexOf("imax")!==-1,
       imaxLaserConfirmed:false,seatsKnown:false
