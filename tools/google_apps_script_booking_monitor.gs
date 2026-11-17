@@ -156,7 +156,7 @@ function sentinelleCheckWithBookingOnce(nowUtc) {
         errors.push({ date: date, errorType: String(error.name || "Error") });
       }
     }
-    if (good > 0 && failures === 0) {
+    if (good === dates.length && failures === 0 && unknown === 0) {
       props.setProperty(DOOMSDAY_BOOKING_V1.lastDetailOk, new Date().toISOString());
       props.setProperty(DOOMSDAY_BOOKING_V1.detailFailures, "0");
     } else {
