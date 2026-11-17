@@ -93,3 +93,8 @@ jobs:
 
       - name: IMAX day-tag bias and detailed-room fallback (offline)
         run: node tests/test_google_apps_script_imax_audit.js
+
+      - name: Telegram test receipt binding (offline)
+        run: |
+          node --check < tools/google_apps_script_telegram_receipt.gs
+          node tests/test_google_apps_script_telegram_receipt.js
