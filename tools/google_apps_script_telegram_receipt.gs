@@ -43,10 +43,13 @@ function sentinelleTelegramReceiptStatus() {
       if(!q||q.data!=="receipt:"+state.nonce||!m||!m.chat||m.chat.type!=="private"||
         String(m.chat.id)!==String(chat)||m.message_id!==state.messageId||
         !q.from||String(q.from.id)!==String(chat))return false;
-      sentinelleReceiptTelegramCall_("answerCallbackQuery",{callback_query_id:q.id,
-        text:"Réception du TEST confirmée. Merci !"});
+      // The button itself proves the declaration. Telegram may reject answering
+      // an older callback; do not lose that proof because its popup has expired.
       state.acknowledged=true;state.acknowledgedAtUtc=new Date().toISOString();
-      p.setProperty("DOOMSDAY_RECEIPT_TEST_V1",JSON.stringify(state));return true;
+      p.setProperty("DOOMSDAY_RECEIPT_TEST_V1",JSON.stringify(state));
+      try {sentinelleReceiptTelegramCall_("answerCallbackQuery",{callback_query_id:q.id,
+        text:"Réception du TEST confirmée. Merci !"});}catch(_) {}
+      return true;
     });
   }
   var summary={test:"TELEGRAM_RECEIPT",sentAtUtc:state.at,
