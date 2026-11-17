@@ -45,3 +45,9 @@ Préserver les Script Properties et la file d'envois existantes. **Ne jamais rec
 8. La surveillance permanente reste **DÉSACTIVÉE** jusqu'à réalisation de ces étapes et décision explicite.
 
 Une couche LLM n'est pas nécessaire pour lire ces champs déterministes. Elle peut servir à diagnostiquer une modification de schéma, mais ne doit jamais déclarer des billets disponibles sans preuve API.
+
+## Vérification indépendante de la salle IMAX Laser (17 novembre 2026)
+
+Pathé Maroc indique explicitement que **Pathé Californie possède une salle IMAX Laser** : https://www.pathe.ma/fr/cinemas/ville/casablanca . IMAX indique aussi « IMAX with Laser » pour ce cinéma : https://www.imax.com/theatre/pathe-california-casablanca-and-imax . Cette double confirmation prouve la **capacité technique du cinéma**, et non que telle séance de Doomsday est assignée à cette salle.
+
+La cartographie en attente doit donc vérifier sur une **véritable séance IMAX à Californie** que le tag détaillé `imax` correspond à cette salle, éventuellement en croisant `auditoriumName` ou les métadonnées publiques. Tant que ce rapprochement n'est pas fait, les notifications emploieront « IMAX (Laser non confirmé pour cette séance) » et ne promettront aucune disponibilité de sièges.
