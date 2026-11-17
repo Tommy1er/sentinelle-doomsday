@@ -25,4 +25,6 @@ test("ordering and duplicate tags do not change snapshot",()=>assert.deepEqual(r
 test("duplicate identities rejected",()=>assert.throws(()=>run([real[0],real[0]])));
 test("observed IMAX slug does not imply Laser or seats",()=>{const s=run(mutated({tags:["imax"]}))[0];assert.equal(s.imaxByTag,true);assert.equal(s.imaxLaserConfirmed,false);assert.equal(s.seatsKnown,false);assert.equal(run(mutated({tags:["vip_fr","PREMIUM"]}))[0].imaxByTag,false);});
 test("malformed local date and window rejected",()=>{assert.throws(()=>run(mutated({time:"2026-02-30 22:30:00"})));assert.throws(()=>run(mutated({reservabilityEnd:null})));});
+test("normalized impossible opening date cannot create sale signal",()=>assert.throws(()=>run(mutated({reservabilityStart:"2026-02-30T10:00:00Z"}))));
 console.log(count+" showtime signal checks passed; no network or notifications.");
+
