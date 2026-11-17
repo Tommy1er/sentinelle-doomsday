@@ -11,6 +11,11 @@ function patheShowtimeSignalsV1(payload, nowUtc) {
     }
     var parsed=Date.parse(value);
     if (!isFinite(parsed)) throw new Error("Invalid timestamp");
+    var parts=value.slice(0,10).split("-").map(Number);
+    var calendar=new Date(Date.UTC(parts[0],parts[1]-1,parts[2]));
+    if (calendar.getUTCFullYear()!==parts[0] || calendar.getUTCMonth()!==parts[1]-1 || calendar.getUTCDate()!==parts[2]) {
+      throw new Error("Invalid timestamp calendar date");
+    }
     return parsed;
   }
   var now=instant(nowUtc);
@@ -55,3 +60,4 @@ function patheShowtimeSignalsV1(payload, nowUtc) {
     };
   }).sort(function(a,b){return a.id<b.id?-1:a.id>b.id?1:0;});
 }
+
