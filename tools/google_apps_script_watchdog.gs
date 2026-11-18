@@ -14,10 +14,19 @@ function sentinelleHealthyForWatchdog_(r) {
     r.partialDateCoverage===false && r.datesNotCheckedThisCycle===0 &&
     !!r.delivery && r.delivery.pending===0;
 }
+function sentinelleWatchdogError_(reason, httpStatus) {
+  var diagnostic = { watchdog: "FAILED", reason: reason };
+  if (httpStatus != null) diagnostic.httpStatus = httpStatus;
+  console.log(JSON.stringify(diagnostic));
+  var error = new Error("Healthchecks heartbeat failed: " + reason);
+  error.name = "WatchdogError";
+  return error;
+}
+
 function sentinelleWatchdogSuccessPing_() {
   var url=PropertiesService.getScriptProperties().getProperty("HC_PING_URL");
   if (!url || !/^https:\/\/hc-ping\.com\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(url)) {
-    throw new Error("Watchdog private URL missing or invalid");
+    throw sentinelleWatchdogError_("NOT_CONFIGURED");
   }
   var response;
   try {
@@ -25,14 +34,24 @@ function sentinelleWatchdogSuccessPing_() {
       method:"get",muteHttpExceptions:true,followRedirects:false,
       validateHttpsCertificates:true
     });
-    // Healthchecks can answer 200 with 'OK (not found)' or 'OK (rate limited)'.
-    // Only the ordinary acknowledged OK is accepted; never log private URL.
-    if(response.getResponseCode()!==200 || response.getContentText().trim()!=="OK") {
-      throw new Error("not acknowledged");
-    }
   } catch (_) {
-    throw new Error("Watchdog success ping not acknowledged");
+    throw sentinelleWatchdogError_("TRANSPORT_ERROR");
   }
+  var status;
+  var acknowledgement;
+  try {
+    status = response.getResponseCode();
+    if (status === 200) acknowledgement = response.getContentText().trim();
+  } catch (_) {
+    throw sentinelleWatchdogError_("RESPONSE_READ_ERROR");
+  }
+  if (status !== 200) {
+    var safeStatus = Number.isInteger(status) && status >= 100 && status <= 599 ? status : null;
+    throw sentinelleWatchdogError_("HTTP_ERROR", safeStatus);
+  }
+  if (acknowledgement === "OK (not found)") throw sentinelleWatchdogError_("CHECK_NOT_FOUND");
+  if (acknowledgement === "OK (rate limited)") throw sentinelleWatchdogError_("RATE_LIMITED");
+  if (acknowledgement !== "OK") throw sentinelleWatchdogError_("UNEXPECTED_ACK");
   return true;
 }
 function sentinelleRunWithWatchdog() {

@@ -8,7 +8,7 @@ function scope(kind, persisted=new Map()) {
   const c=vm.createContext({console:{log(){}},
     LockService:{getScriptLock:()=>({tryLock:()=>true,releaseLock(){}})},
     PropertiesService:{getScriptProperties:()=>props},
-    UrlFetchApp:{fetch:(url,opt)=>{
+    UrlFetchApp:{fetchAll:requests=>requests.map(()=>response(503,{})),fetch:(url,opt)=>{
       if(url.startsWith("https://api.telegram.org/"))return response(200,{ok:true});
       if(url.endsWith("/cinemas"))return kind==="core"?response(503,{}):response(200,{});
       if(url.includes("/showtimes/"))return response(503,{});

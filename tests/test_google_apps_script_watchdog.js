@@ -28,3 +28,14 @@ test("200 not-found/rate-limit acknowledgements rejected",()=>{for(const x of ["
 test("transport error never prints private ping URL",()=>{networkError=true;let error;try{c.sentinelleRunWithWatchdog();}catch(e){error=e;}assert.ok(error);assert.equal(error.message.includes(privateUrl),false);});
 test("missing config does not skip actual monitoring",before=>{configured=false;const previousReads=read;assert.throws(()=>c.sentinelleRunWithWatchdog());assert.equal(read,previousReads+1);assert.equal(called,before);});
 console.log(count+" watchdog checks passed; all services mocked.");
+
+test("safe diagnostics distinguish transport, HTTP and acknowledgement failures",()=>{
+  networkError=true;
+  assert.throws(()=>c.sentinelleRunWithWatchdog(),/TRANSPORT_ERROR/);
+  networkError=false;http=503;
+  assert.throws(()=>c.sentinelleRunWithWatchdog(),/HTTP_ERROR/);
+  http=200;body="OK (rate limited)";
+  assert.throws(()=>c.sentinelleRunWithWatchdog(),/RATE_LIMITED/);
+  body="unexpected "+privateUrl;
+  assert.throws(()=>c.sentinelleRunWithWatchdog(),e=>/UNEXPECTED_ACK/.test(e.message)&&!e.message.includes(privateUrl));
+});

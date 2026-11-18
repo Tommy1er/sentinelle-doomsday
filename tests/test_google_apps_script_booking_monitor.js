@@ -5,6 +5,8 @@ const vm=require("node:vm");
 const state=new Map();
 let cinemaResponse={};
 const details=new Map();
+const batches=[];
+let failBatch=false;
 let tg=0, mail=0, bodyByChannel=[];
 const props={
   getProperty(k){return state.get(k)??null;},
@@ -25,7 +27,11 @@ const env={
  console:{log(){}},
  LockService:{getScriptLock(){return {tryLock(){return true;},releaseLock(){}};}},
  PropertiesService:{getScriptProperties(){return props;}},
- UrlFetchApp:{fetch(url,options){
+ UrlFetchApp:{fetchAll(requests){
+   batches.push(requests.map(r=>r.url.split("/").pop()));
+   if(failBatch) throw Error("simulated batch transport failure");
+   return requests.map(({url,...options})=>this.fetch(url,options));
+ },fetch(url,options){
    if(url.includes("api.telegram.org")){
      tg++;bodyByChannel.push(["telegram",JSON.parse(options.payload).text]);
      return response(200,{ok:true});
@@ -132,3 +138,24 @@ test("large calendars are rotated rather than stopping the whole monitor",()=>{
   assert.ok(selected.has("2026-12-15"),"preview anchor must be monitored");
 });
 console.log("PASS: 10 detailed booking integration checks (offline; no real notifications)");
+
+test("20 dates use three batches and keep the eight anchors in the first",()=>{
+  const extra=Array.from({length:12},(_,i)=>"2026-11-"+String(i+1).padStart(2,"0"));
+  const selected=env.sentinelleDetailedDates_({days:extra.map(date=>({date}))},props);
+  assert.equal(selected.length,20);
+  const archiveKey=env.DOOMSDAY_SENTINEL.stateKey;
+  const originalCore=env.sentinelleCheckOnce;
+  env.sentinelleCheckOnce=()=>{props.setProperty(archiveKey,JSON.stringify({days:extra.map(date=>({date}))}));return {status:"DATES_PROGRAMMED"};};
+  batches.length=0;
+  try {
+    const result=env.sentinelleCheckWithBookingOnce(nowAfter);
+    assert.equal(result.validDetailedDays,20);
+    assert.deepEqual(batches.map(x=>x.length),[8,8,4]);
+    assert.equal(JSON.stringify(batches[0]),JSON.stringify(env.DOOMSDAY_BOOKING_V1.anchorDates));
+    failBatch=true;
+    const failed=env.sentinelleCheckWithBookingOnce(nowAfter);
+    assert.equal(failed.validDetailedDays,0);
+    assert.equal(failed.failedDetailedDays,20);
+    assert.ok(failed.errors.every(e=>e.errorType==="DetailBatchFetchError"));
+  } finally {failBatch=false;env.sentinelleCheckOnce=originalCore;}
+});
