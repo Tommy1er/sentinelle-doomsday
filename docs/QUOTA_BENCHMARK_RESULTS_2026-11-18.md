@@ -16,3 +16,7 @@ Le compte Apps Script connecté affiche sept déclencheurs personnels, dont cinq
 ## Décision
 
 Les essais réseau à 8 et 20 dates sont réussis. Le GO permanent reste bloqué sur le compte partagé. Le moteur complet optimisé doit encore être mesuré sous une identité dont le budget est établi. Un compte dédié isolerait le budget des autres scripts. Il reste à le choisir et à vérifier son accès et la livraison des alertes sous cette identité.
+
+## Prévalidation du moteur installé
+
+Le 18 novembre à 22:40 UTC, le moteur parallèle et le watchdog corrigé de la PR ont été installés dans le projet privé avec le point d'entrée permanent. Les fichiers enregistrés ont été relus et comparés aux sources. Le cycle manuel complet, hors heartbeat, a contrôlé huit dates en **4,070 s** mesurées. Huit dates valides, zéro erreur, zéro ouverture, zéro notification en attente. Le point d'entrée permanent a renvoyé **DISABLED** lors de la vérification. Aucun déclencheur n'a été créé. La durée à vingt dates reste celle du benchmark de lecture.
