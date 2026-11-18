@@ -101,3 +101,8 @@ jobs:
 
       - name: Fixed pilot window boundary (offline)
         run: node tests/test_google_apps_script_pilot_window.js
+
+      - name: Read-only 8- vs 20-date runtime benchmark fixtures
+        run: |
+          node --check < tools/google_apps_script_quota_benchmark.gs
+          node tests/test_google_apps_script_quota_benchmark.js
