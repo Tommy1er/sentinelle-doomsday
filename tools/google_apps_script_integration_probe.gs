@@ -8,7 +8,7 @@ function sentinelleMeasuredIntegrationCheck() {
   var result=sentinelleCheckWithBookingOnce();
   var props=PropertiesService.getScriptProperties();
   var summary={
-    build:"11fa8013b7cde6af51e0dd6ce6c755fe01730fa1",
+    build:"fb217c01beaf7b42e24debfe773ce2400c419a30",
     durationMs:Date.now()-started,
     report:result,
     anchorSnapshots:DOOMSDAY_BOOKING_V1.anchorDates.map(function(date){

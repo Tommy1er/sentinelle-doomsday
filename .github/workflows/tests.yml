@@ -78,3 +78,36 @@ jobs:
         run: |
           node --check < tools/google_apps_script_booking_monitor.gs
           node tests/test_google_apps_script_booking_monitor.js
+
+      - name: Persistent core and detail outage reminders (offline)
+        run: node tests/test_google_apps_script_failure_reminders.js
+
+      - name: External watchdog acknowledgement and health policy (offline)
+        run: node tests/test_google_apps_script_watchdog.js
+
+      - name: Bounded pilot instrumentation and audit syntax (offline)
+        run: |
+          node --check < tools/google_apps_script_imax_audit.gs
+          node --check < tools/google_apps_script_pilot_metrics.gs
+          node tests/test_google_apps_script_pilot_metrics.js
+
+      - name: IMAX day-tag bias and detailed-room fallback (offline)
+        run: node tests/test_google_apps_script_imax_audit.js
+
+      - name: Telegram test receipt binding (offline)
+        run: |
+          node --check < tools/google_apps_script_telegram_receipt.gs
+          node tests/test_google_apps_script_telegram_receipt.js
+
+      - name: Fixed pilot window boundary (offline)
+        run: node tests/test_google_apps_script_pilot_window.js
+
+      - name: Read-only 8- vs 20-date runtime benchmark fixtures
+        run: |
+          node --check < tools/google_apps_script_quota_benchmark.gs
+          node tests/test_google_apps_script_quota_benchmark.js
+
+      - name: Gated permanent watcher entrypoint (offline)
+        run: |
+          node --check < tools/google_apps_script_production.gs
+          node tests/test_google_apps_script_production.js

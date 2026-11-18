@@ -18,32 +18,62 @@ var DOOMSDAY_BOOKING_V1 = {
   detailFailures: "DOOMSDAY_DETAIL_FAILURES_V1",
   // Independent backup probes: do not rely only on /cinemas for presales.
   // These dates are hypotheses until Doomsday's preprogramme endpoint is tested.
-  anchorDates: ["2026-12-16", "2026-12-17", "2026-12-18"],
-  maxDatesPerCheck: 14
+  anchorDates: ["2026-12-13", "2026-12-14", "2026-12-15",
+    "2026-12-16", "2026-12-17", "2026-12-18", "2026-12-19", "2026-12-20"],
+  maxDatesPerCheck: 20,
+  detailBatchSize: 8,
+  cursorKey: "DOOMSDAY_DETAIL_ROTATION_CURSOR_V1",
+  partialKey: "DOOMSDAY_DETAIL_PARTIAL_NOTICE_V1"
 };
 
-function sentinelleDetailedDates_(coreState) {
-  var all = {};
-  DOOMSDAY_BOOKING_V1.anchorDates.forEach(function(d) { all[d] = true; });
-  (coreState && Array.isArray(coreState.days) ? coreState.days : []).forEach(function(day) {
-    all[day.date] = true;
+function sentinelleDetailedDates_(coreState, props) {
+  // Do not silently stop monitoring when the premiere spans >20 dates.
+  // Always probe known opening/preview anchors and rotate over additional
+  // dates, under a strictly bounded request/time budget.
+  var anchors=DOOMSDAY_BOOKING_V1.anchorDates.slice();
+  var anchorSet={};
+  anchors.forEach(function(d){anchorSet[d]=true;});
+  var otherSet={};
+  (coreState && Array.isArray(coreState.days) ? coreState.days : []).forEach(function(day){
+    if (!day || typeof day.date!=="string" || !/^\d{4}-\d{2}-\d{2}$/.test(day.date)) {
+      throw new Error("Unexpected cinema date");
+    }
+    if (!anchorSet[day.date]) otherSet[day.date]=true;
   });
-  var ordered = Object.keys(all).sort();
-  if (ordered.length > DOOMSDAY_BOOKING_V1.maxDatesPerCheck) {
-    throw new Error("Detailed coverage exceeds maxDatesPerCheck; do not silently truncate");
+  var extras=Object.keys(otherSet).sort();
+  var slots=DOOMSDAY_BOOKING_V1.maxDatesPerCheck-anchors.length;
+  if (slots<1) throw new Error("No monitoring capacity outside anchor dates");
+  var selectedExtras=[];
+  var cursor=props ? Number(props.getProperty(DOOMSDAY_BOOKING_V1.cursorKey)||"0") : 0;
+  if (!isFinite(cursor) || cursor<0) cursor=0;
+  cursor=Math.floor(cursor) % Math.max(extras.length,1);
+  if (extras.length<=slots) selectedExtras=extras;
+  else {
+    for (var i=0;i<slots;i++) selectedExtras.push(extras[(cursor+i)%extras.length]);
+    if (props) props.setProperty(DOOMSDAY_BOOKING_V1.cursorKey,
+      String((cursor+slots)%extras.length));
   }
-  return ordered;
+  var selected=anchors.concat(selectedExtras);
+  // Attach enumerable metadata for diagnostic/logging, not persisted as a list.
+  selected.totalDates=anchors.length+extras.length;
+  selected.skippedDates=Math.max(0,extras.length-selectedExtras.length);
+  selected.coveragePartial=selected.skippedDates>0;
+  return selected;
 }
 
-function sentinelleDetailedRead_(date, nowUtc) {
+function sentinelleDetailedRequest_(date) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new Error("Invalid detail date");
   var endpoint = "https://www.pathe.ma/api/show/" + DOOMSDAY_BOOKING_V1.film +
     "/showtimes/" + DOOMSDAY_BOOKING_V1.cinema + "/" + date;
-  var response = UrlFetchApp.fetch(endpoint, {
+  return {
+    url: endpoint,
     muteHttpExceptions: true, followRedirects: true,
     validateHttpsCertificates: true,
     headers: { Accept: "application/json" }
-  });
+  };
+}
+
+function sentinelleDetailedRead_(date, nowUtc, response) {
   var status = response.getResponseCode();
   // 404 is NOT proof of no tickets. It is unknown until schema/behavior
   // before programming is validated with a real target response.
@@ -126,35 +156,59 @@ function sentinelleCheckWithBookingOnce(nowUtc) {
   var props = PropertiesService.getScriptProperties();
   try {
     var baseline = sentinelleReadJsonProperty_(props, DOOMSDAY_SENTINEL.stateKey, null);
-    var dates = sentinelleDetailedDates_(baseline);
+    var dates = sentinelleDetailedDates_(baseline, props);
     var good = 0, unknown = 0, failures = 0, newlyOpen = 0;
+    if (dates.coveragePartial && props.getProperty(DOOMSDAY_BOOKING_V1.partialKey)!=="reported") {
+      sentinelleEnqueue_(props, "⚠️ [DOOMSDAY] Couverture partielle par rotation",
+        "Programmation étendue : "+dates.totalDates+" dates, "+dates.length+
+        " contrôlées par cycle. Dates restantes couvertes aux passages suivants."+
+        "\nAlerte de couverture (pas un signal de vente).\n"+DOOMSDAY_SENTINEL.publicPage);
+      props.setProperty(DOOMSDAY_BOOKING_V1.partialKey,"reported");
+    }
+    if (!dates.coveragePartial && props.getProperty(DOOMSDAY_BOOKING_V1.partialKey)==="reported") {
+      props.setProperty(DOOMSDAY_BOOKING_V1.partialKey,"");
+    }
     var errors = [];
-    for (var i = 0; i < dates.length; i++) {
-      var date = dates[i];
+    for (var offset = 0; offset < dates.length; offset += DOOMSDAY_BOOKING_V1.detailBatchSize) {
+      var batch = dates.slice(offset, offset + DOOMSDAY_BOOKING_V1.detailBatchSize);
+      var responses;
       try {
-        var detail = sentinelleDetailedRead_(date, now);
-        if (detail.kind !== "VALID") {
-          unknown++;
-          continue; // Preserve previously healthy snapshot.
+        responses = UrlFetchApp.fetchAll(batch.map(sentinelleDetailedRequest_));
+        if (!Array.isArray(responses) || responses.length !== batch.length) {
+          throw new Error("Unexpected detail batch response count");
         }
-        good++;
-        var key = DOOMSDAY_BOOKING_V1.detailsPrefix + date;
-        var old = sentinelleReadJsonProperty_(props, key, null);
-        if (old !== null && !Array.isArray(old)) throw new Error("Invalid old details snapshot");
-        var current = sentinelleDetailedSmallSnapshot_(detail.sessions);
-        var newSales = sentinelleDetailedChanges_(old, current);
-        if (newSales.length) {
-          var alert = sentinelleDetailedAlert_(date, newSales);
-          sentinelleEnqueue_(props, alert.subject, alert.body);
-          newlyOpen += newSales.length;
-        }
-        // After enqueue, never before; any pending channel will be retried.
-        props.setProperty(key, JSON.stringify(current));
-      } catch (error) {
-        failures++;
-        // Do not disclose details/credentials/response bodies in logs.
-        errors.push({ date: date, errorType: String(error.name || "Error") });
+      } catch (_) {
+        // Do not retry the entire batch serially within the same cycle.
+        failures += batch.length;
+        batch.forEach(function(date) { errors.push({ date: date, errorType: "DetailBatchFetchError" }); });
+        continue;
       }
+      batch.forEach(function(date, index) {
+        try {
+          var detail = sentinelleDetailedRead_(date, now, responses[index]);
+          if (detail.kind !== "VALID") {
+            unknown++;
+            return; // Preserve previously healthy snapshot.
+          }
+          var key = DOOMSDAY_BOOKING_V1.detailsPrefix + date;
+          var old = sentinelleReadJsonProperty_(props, key, null);
+          if (old !== null && !Array.isArray(old)) throw new Error("Invalid old details snapshot");
+          var current = sentinelleDetailedSmallSnapshot_(detail.sessions);
+          var newSales = sentinelleDetailedChanges_(old, current);
+          if (newSales.length) {
+            var alert = sentinelleDetailedAlert_(date, newSales);
+            sentinelleEnqueue_(props, alert.subject, alert.body);
+            newlyOpen += newSales.length;
+          }
+          // After enqueue, never before; any pending channel will be retried.
+          props.setProperty(key, JSON.stringify(current));
+          good++;
+        } catch (error) {
+          failures++;
+          // Do not disclose details/credentials/response bodies in logs.
+          errors.push({ date: date, errorType: String(error.name || "Error") });
+        }
+      });
     }
     if (good === dates.length && failures === 0 && unknown === 0) {
       props.setProperty(DOOMSDAY_BOOKING_V1.lastDetailOk, new Date().toISOString());
@@ -162,7 +216,7 @@ function sentinelleCheckWithBookingOnce(nowUtc) {
     } else {
       var consecutive = Number(props.getProperty(DOOMSDAY_BOOKING_V1.detailFailures) || "0") + 1;
       props.setProperty(DOOMSDAY_BOOKING_V1.detailFailures, String(consecutive));
-      if (consecutive === 3 || consecutive === 12) {
+      if (consecutive === 3 || (consecutive >= 12 && consecutive % 12 === 0)) {
         sentinelleEnqueue_(props, "⚠️ [DOOMSDAY] Couverture billetterie dégradée",
           "Impossible de confirmer la lecture détaillée de toutes les séances depuis " +
           consecutive + " contrôles.\nDernière lecture détaillée saine : " +
@@ -176,6 +230,9 @@ function sentinelleCheckWithBookingOnce(nowUtc) {
       cinemaProgramme: coreSummary ? coreSummary.status : "CORE_ERROR",
       coreErrorType: coreError,
       datesChecked: dates.length,
+      totalCandidateDates: dates.totalDates,
+      datesNotCheckedThisCycle: dates.skippedDates,
+      partialDateCoverage: dates.coveragePartial,
       validDetailedDays: good,
       unknownDetailedDays: unknown,
       failedDetailedDays: failures,

@@ -18,7 +18,8 @@ test("time alone opens sales despite unchanged metadata",()=>{const data=mutated
 test("end boundary is exclusive",()=>assert.equal(run(mutated({reservabilityEnd:"2026-11-16T16:32:02Z"}))[0].bookingProposedByApi,false));
 test("unknown synthetic status cannot assert sales",()=>assert.equal(run(mutated({status:"UNKNOWN_SYNTHETIC_STATUS"}))[0].bookingProposedByApi,false));
 test("missing purchase link cannot assert sales",()=>assert.equal(run(mutated({refCmd:null}))[0].bookingProposedByApi,false));
-test("wrong host and wrong cinema links rejected",()=>{assert.throws(()=>run(mutated({refCmd:"https://evil.example/fr/V5401S53301/booking"})));assert.throws(()=>run(mutated({refCmd:"https://s.pathe.ma/fr/V9999S53301/booking"})));});
+test("other official movie V-id accepted without hardcoding witness",()=>{const s=run(mutated({refCmd:"https://s.pathe.ma/fr/V98765S53301/booking"}))[0];assert.equal(s.bookingProposedByApi,true);assert.equal(s.filmVid,"98765");});
+test("untrusted host and malformed paths rejected",()=>{assert.throws(()=>run(mutated({refCmd:"https://evil.example/fr/V5401S53301/booking"})));assert.throws(()=>run(mutated({refCmd:"https://s.pathe.ma/fr/V9999S53301/booking/extra"})));assert.throws(()=>run(mutated({refCmd:"http://s.pathe.ma/fr/V9999S53301/booking"})));});
 test("no implicit host timezone for sales window",()=>assert.throws(()=>run(mutated({reservabilityStart:"2026-11-16T10:00:00"}))));
 test("reversed window rejected",()=>assert.throws(()=>run(mutated({reservabilityStart:"2026-12-16T10:00:00Z"}))));
 test("ordering and duplicate tags do not change snapshot",()=>assert.deepEqual(run(),run([...real].reverse().map(s=>({...s,tags:["pmr","DEFAULT","pmr"]})))));
