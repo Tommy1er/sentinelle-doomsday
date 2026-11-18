@@ -106,3 +106,8 @@ jobs:
         run: |
           node --check < tools/google_apps_script_quota_benchmark.gs
           node tests/test_google_apps_script_quota_benchmark.js
+
+      - name: Gated permanent watcher entrypoint (offline)
+        run: |
+          node --check < tools/google_apps_script_production.gs
+          node tests/test_google_apps_script_production.js
