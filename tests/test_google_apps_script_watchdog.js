@@ -14,11 +14,11 @@ const c=vm.createContext({console:{log(){}},
   sentinelleCheckWithBookingOnce:()=>{read++;if(runError)throw Error("failed");return report;}});
 vm.runInContext(fs.readFileSync("tools/google_apps_script_watchdog.gs","utf8"),c);
 let count=0;function test(name,f){report=healthy();body="OK";http=200;networkError=false;runError=false;configured=true;const prior=called;f(prior);count++;console.log("PASS "+name);}
+test("rotation over >20 dates still pings (already notified, must not mute the watchdog)",before=>{report.partialDateCoverage=true;report.datesNotCheckedThisCycle=12;assert.equal(c.sentinelleRunWithWatchdog().watchdog,"ACKNOWLEDGED");assert.equal(called,before+1);});
 test("healthy real-shape cycle pings once",before=>{assert.equal(c.sentinelleRunWithWatchdog().watchdog,"ACKNOWLEDGED");assert.equal(called,before+1);});
 for(const [name,mutate] of [
  ["unknown API coverage",r=>r.unknownDetailedDays=1],
  ["failed API coverage",r=>r.failedDetailedDays=1],
- ["partially rotated calendar",r=>{r.partialDateCoverage=true;r.datesNotCheckedThisCycle=12;}],
  ["core detector failed",r=>r.coreErrorType="Error"],
  ["pending channel",r=>r.delivery.pending=1],
  ["empty unconfirmed disappearance",r=>r.cinemaProgramme="PENDING_EMPTY_CONFIRMATION"]

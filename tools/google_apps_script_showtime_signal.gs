@@ -76,6 +76,18 @@ function patheShowtimeSignalsV1(payload, nowUtc) {
     var linkUntrusted = rawLink !== null && rawLink !== undefined && rawLink !== "" && link === null;
     var vid = link ? /\/V(\d+)S\d+/.exec(link) : null;
 
+    var auditorium = typeof s.auditoriumName === "string" || typeof s.auditoriumName === "number"
+      ? String(s.auditoriumName).slice(0, 40) : null;
+    var capacity = /^\d{1,4}$/.test(String(s.auditoriumCapacity)) ? Number(s.auditoriumCapacity) : null;
+    var proposed = s.status === "available" && link !== null && inWindow;
+    // salesState is what the human is told. Anything that is neither clearly
+    // open, clearly not-yet-open nor clearly over is UNCERTAIN and escalated:
+    // e.g. sales window open but unknown status, or no recognised Pathé link.
+    var salesState = proposed ? "OPEN"
+      : start !== null && now < start ? "NOT_YET"
+      : end !== null && now >= end ? "ENDED"
+      : "UNCERTAIN";
+
     var key = link || s.time + "|" + version + "|" + String(s.auditoriumName || "");
     if (seen[key]) { seen[key]++; key = key + "#" + seen[key]; } else { seen[key] = 1; }
 
@@ -87,8 +99,10 @@ function patheShowtimeSignalsV1(payload, nowUtc) {
       salesWindowKnown: windowKnown,
       salesNotYetOpen: start !== null && now < start,
       bookingUrl: link, linkUntrusted: linkUntrusted, filmVid: vid ? vid[1] : null,
-      bookingProposedByApi: s.status === "available" && link !== null && inWindow,
+      bookingProposedByApi: proposed, salesState: salesState,
+      auditorium: auditorium, auditoriumCapacity: capacity,
       imaxByTag: tags.some(function(t) { return t.toLowerCase() === "imax"; }),
+      imaxByAuditorium: auditorium !== null && /imax/i.test(auditorium),
       imaxLaserConfirmed: false, seatsKnown: false
     };
   }).sort(function(a, b) { return a.id < b.id ? -1 : a.id > b.id ? 1 : 0; });

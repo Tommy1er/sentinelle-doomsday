@@ -14,7 +14,7 @@
  */
 var DOOMSDAY_PRODUCTION_V1 = {
   enableKey: "DOOMSDAY_PRODUCTION_ENABLED",
-  version: "production-v1"
+  version: "production-v1.1-audit-20261120"
 };
 
 /**
@@ -27,6 +27,13 @@ function sentinelleProductionTick() {
     var skipped={mode:"PRODUCTION",status:"DISABLED",triggerCreated:false};
     console.log(JSON.stringify(skipped));
     return skipped;
+  }
+  // Optional automatic end of service (ISO date-time), e.g. 2027-01-15T00:00:00Z.
+  var until=Date.parse(props.getProperty("DOOMSDAY_PRODUCTION_UNTIL")||"");
+  if (isFinite(until) && Date.now()>=until) {
+    var expired={mode:"PRODUCTION",status:"EXPIRED",until:new Date(until).toISOString()};
+    console.log(JSON.stringify(expired));
+    return expired;
   }
   // Reuses bounded telemetry, locks and channel retry behavior.
   return sentinelleInstrumentedRun_(function(){

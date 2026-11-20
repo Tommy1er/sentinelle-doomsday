@@ -217,8 +217,18 @@ function sentinelleEnqueue_(props, subject, body) {
   // When every channel is down, do not brick the detector once its queue is
   // saturated. Coalesce the newest item while retaining the older pending items.
   // A re-armed Telegram channel receives an updated event, not the old item.
+  // Never let a routine status message overwrite a pending opening alert.
+  var critical = function(text) { return /^🚨|MAINTENANT/.test(String(text || "")); };
   if (outbox.length >= 4) {
-    var latest = outbox[outbox.length - 1];
+    var targetIndex = outbox.length - 1;
+    for (var k = outbox.length - 1; k >= 0; k--) {
+      if (!critical(outbox[k].subject)) { targetIndex = k; break; }
+    }
+    if (critical(outbox[targetIndex].subject) && !critical(subject)) {
+      console.log("Outbox saturated with critical alerts; routine notice dropped");
+      return;
+    }
+    var latest = outbox[targetIndex];
     latest.id = new Date().getTime() + "-" + Math.random().toString(36).slice(2, 8);
     latest.subject = subject;
     latest.body = "⚠️ Plusieurs évolutions se sont produites pendant une panne d'alertes.\n" + body;
@@ -234,6 +244,9 @@ function sentinelleEnqueue_(props, subject, body) {
   var byteLength = encodeURIComponent(encoded).replace(/%[0-9A-F]{2}/g, "x").length;
   if (byteLength > 8000) {
     var last = outbox[outbox.length - 1];
+    for (var c = outbox.length - 1; c >= 0; c--) {
+      if (critical(outbox[c].subject)) { last = outbox[c]; break; }
+    }
     last.body = "⚠️ Plusieurs alertes accumulées pendant une panne de livraison.\n" +
       "Dernière évolution : " + body.slice(0, 400) +
       "\nConsulter immédiatement : " + DOOMSDAY_SENTINEL.publicPage;
@@ -242,6 +255,12 @@ function sentinelleEnqueue_(props, subject, body) {
     console.log("Pending alerts coalesced to remain within Script Properties quota");
   }
   props.setProperty(DOOMSDAY_SENTINEL.outboxKey, JSON.stringify(outbox));
+}
+
+/** Phone notifications show the first line: make sure it says what happened. */
+function sentinelleTelegramText_(item) {
+  var head = String(item.subject || "").split(" ")[0];
+  return head && item.body.indexOf(head) === 0 ? item.body : item.subject + "\n\n" + item.body;
 }
 
 function sentinelleSendTelegram_(props, text) {
@@ -279,7 +298,7 @@ function sentinelleFlushOutbox_(props) {
     for (var j = 0; j < item.pending.length;) {
       var channel = item.pending[j];
       try {
-        if (channel === "telegram") sentinelleSendTelegram_(props, item.body);
+        if (channel === "telegram") sentinelleSendTelegram_(props, sentinelleTelegramText_(item));
         else if (channel === "gmail") sentinelleSendMail_(props, item.subject, item.body);
         else throw new Error("Unknown channel");
         item.pending.splice(j, 1);

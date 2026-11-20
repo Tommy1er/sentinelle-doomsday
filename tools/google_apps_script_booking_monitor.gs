@@ -104,7 +104,9 @@ function sentinelleDetailedRead_(date, nowUtc, response) {
 function sentinelleDetailedSmallSnapshot_(signals) {
   // Only what the change detector needs. Alert text is built from live signals.
   var result = signals.map(function(s) {
-    return { id: s.id, open: s.bookingProposedByApi === true, imax: s.imaxByTag === true };
+    return { id: s.id, open: s.bookingProposedByApi === true,
+      imax: s.imaxByTag === true || s.imaxByAuditorium === true,
+      st: s.salesState === "UNCERTAIN" ? "U" : s.salesState === "NOT_YET" ? "N" : s.salesState === "ENDED" ? "E" : "O" };
   });
   // Script Properties cap a value at 9 KB: ~140 sessions for one date here.
   if (JSON.stringify(result).length > 8500) throw new Error("Detailed snapshot storage budget exhausted");
@@ -123,7 +125,13 @@ function sentinelleDetailedChanges_(oldSnapshot, currentSnapshot) {
 function sentinelleDetailedNewlyListed_(oldSnapshot, currentSnapshot) {
   var previous = {};
   (oldSnapshot || []).forEach(function(s) { previous[s.id] = s; });
-  return currentSnapshot.filter(function(s) { return !s.open && !previous[s.id]; });
+  // New non-open sessions, plus any known session that has just become
+  // UNCERTAIN (e.g. sales start passed but no recognised link appeared).
+  return currentSnapshot.filter(function(s) {
+    if (s.open || s.st === "E") return false;
+    var before = previous[s.id];
+    return !before || (s.st === "U" && before.st !== "U" && !before.open);
+  });
 }
 
 function sentinelleCasablancaTime_(iso) {
@@ -134,8 +142,11 @@ function sentinelleCasablancaTime_(iso) {
 }
 
 function sentinelleSessionLine_(s) {
-  return "- " + s.localTime.slice(0, 16) + " — " + s.version +
-    (s.imaxByTag ? " — IMAX (Laser non confirmé)" : " — format à confirmer");
+  var room = s.auditorium ? " — salle " + s.auditorium +
+    (s.auditoriumCapacity ? " (" + s.auditoriumCapacity + " places)" : "") : "";
+  var imax = s.imaxByAuditorium ? " — 🎯 IMAX (Laser à confirmer sur la page de réservation)"
+    : s.imaxByTag ? " — IMAX (Laser non confirmé)" : " — format à confirmer";
+  return "- " + s.localTime.slice(0, 16) + " — " + s.version + room + imax;
 }
 
 function sentinelleDetailedAlert_(date, opened) {
@@ -157,6 +168,28 @@ function sentinelleDetailedAlert_(date, opened) {
     subject: "🚨 DOOMSDAY — réservation ouverte Pathé Californie " + date,
     body: lines.join("\n")
   };
+}
+
+function sentinelleUncertainAlert_(date, uncertain) {
+  var lines = [
+    "⚠️ AVENGERS: DOOMSDAY — SÉANCES PUBLIÉES, VENTE PEUT-ÊTRE OUVERTE",
+    "Cinéma : Pathé Californie — Casablanca",
+    "Date : " + date,
+    "La fenêtre de vente n'est pas fermée, mais la sentinelle ne reconnaît pas le lien ou le statut de Pathé.",
+    "VÉRIFIE MAINTENANT sur le site ou l'appli Pathé.",
+    "Séances :"
+  ];
+  uncertain.slice(0, 10).forEach(function(s) {
+    lines.push(sentinelleSessionLine_(s) + " — statut Pathé : " + String(s.status).slice(0, 30));
+    if (s.bookingUrl) lines.push("  Lien : " + s.bookingUrl);
+  });
+  if (uncertain.length > 10) lines.push("… et " + (uncertain.length - 10) + " autres séances.");
+  if (uncertain.some(function(s) { return s.linkUntrusted; })) {
+    lines.push("Note : un lien hors domaine Pathé a été ignoré par sécurité. Passe par pathe.ma ou l'appli officielle.");
+  }
+  lines.push("Fiche officielle : " + DOOMSDAY_SENTINEL.publicPage);
+  return { subject: "⚠️ DOOMSDAY — séances publiées, vente peut-être ouverte : vérifie MAINTENANT " + date,
+    body: lines.join("\n") };
 }
 
 function sentinelleListedAlert_(date, listed) {
@@ -322,12 +355,20 @@ function sentinelleCheckWithBookingOnce(nowUtc) {
           detail.sessions.forEach(function(s) { byId[s.id] = s; });
           var live = function(x) { return byId[x.id]; };
           var newSales = sentinelleDetailedChanges_(old, current).map(live);
-          var listed = sentinelleDetailedNewlyListed_(old, current).map(live);
+          var newlyListedAll = sentinelleDetailedNewlyListed_(old, current).map(live);
+          var uncertain = newlyListedAll.filter(function(s) { return s.salesState === "UNCERTAIN"; });
+          var listed = newlyListedAll.filter(function(s) { return s.salesState === "NOT_YET"; });
           if (newSales.length) {
             var alert = sentinelleDetailedAlert_(date, newSales);
             sentinelleEnqueue_(props, alert.subject, alert.body);
             sentinelleArmCritical_(props, now, alert.body);
             newlyOpen += newSales.length;
+          }
+          if (uncertain.length) {
+            var warn = sentinelleUncertainAlert_(date, uncertain);
+            sentinelleEnqueue_(props, warn.subject, warn.body);
+            sentinelleArmCritical_(props, now, warn.body);
+            newlyListed += uncertain.length;
           }
           if (listed.length) {
             var notice = sentinelleListedAlert_(date, listed);
