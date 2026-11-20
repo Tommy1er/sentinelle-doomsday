@@ -137,14 +137,16 @@ test("unreadable rows alert IMMEDIATELY (fail-open), once, and arm the reminder"
   assert.equal(reminders,2);
   assert.equal(JSON.parse(state.get("DOOMSDAY_DETAIL_STATE_V1_"+sessionDate))[0].open,true,"old state kept");
 });
-test("untrusted link is hidden but the session is still announced; any reply acknowledges",()=>{
+test("untrusted link during an open window: hidden, escalated as 'vérifie MAINTENANT', reminder re-armed",()=>{
   updates.push({update_id:2,message:{chat:{id:1234567},text:"ok",date:Date.parse("2026-11-17T10:20:00Z")/1000}});
   p(200,[{...session,refCmd:"https://external.bad/phishing"}]);
   const x=env.sentinelleCheckWithBookingOnce("2026-11-17T10:22:00Z");
   assert.equal(x.failedDetailedDays,0);
   assert.equal(x.newlyListedSessions,1);
-  assert.equal(x.criticalReminder,"ACKNOWLEDGED");
+  assert.equal(x.criticalReminder,"WAITING","fresh critical alert armed, first reminder next cycle");
+  assert.equal(critical().acked,false);
   assert.equal(mail,5);assert.equal(tg,5);
+  assert.match(lastMail()[2],/vente peut-être ouverte : vérifie MAINTENANT/);
   assert.doesNotMatch(lastMail()[1],/external\.bad/);
   assert.match(lastMail()[1],/hors domaine Pathé a été ignoré/);
   assert.equal(state.get("DOOMSDAY_DETAIL_ANOMALY_V1_"+sessionDate),"","anomaly flag cleared on a valid read");
@@ -154,7 +156,7 @@ test("IMAX booking session alerts without asserting Laser",()=>{
   let x=env.sentinelleCheckWithBookingOnce("2026-11-17T10:23:00Z");
   assert.equal(x.newReservableSessions,1);
   assert.equal(mail,6);assert.equal(tg,6);
-  assert.match(lastMail()[1],/IMAX \(Laser non confirmé\)/);
+  assert.match(lastMail()[1],/IMAX \(Laser (non confirmé|à confirmer)/);
 });
 test("another identical IMAX polling cycle is quiet",()=>{
   let x=env.sentinelleCheckWithBookingOnce("2026-11-17T10:24:00Z");
@@ -214,4 +216,64 @@ test("20 dates use three batches and keep the eight anchors in the first",()=>{
     assert.equal(failed.failedDetailedDays,20);
     assert.ok(failed.errors.every(e=>e.errorType==="DetailBatchFetchError"));
   } finally {failBatch=false;env.sentinelleCheckOnce=originalCore;}
+});
+
+/* ---- Expert audit 2026-11-20 regressions ---- */
+test("opening with an unrecognised Pathé host is NOT reported as 'pas encore ouvertes'",()=>{
+  const d="2026-12-18";
+  p(200,[{...session,time:d+" 21:00:00",refCmd:"https://billetterie.pathe.ma/fr/V98765S99001/booking"}],d);
+  const before=mail;
+  const x=env.sentinelleCheckWithBookingOnce("2026-11-17T10:40:00Z");
+  assert.equal(x.newlyListedSessions,1);
+  assert.equal(mail,before+1);
+  assert.match(lastMail()[2],/vérifie MAINTENANT/);
+  assert.doesNotMatch(lastMail()[1],/pas encore ouvertes/);
+  assert.equal(critical().acked,false);
+  p(200,[],d);
+});
+test("presale session whose start passes without a usable link escalates once",()=>{
+  const d="2026-12-19";
+  const pre={...session,time:d+" 18:00:00",refCmd:null,reservabilityStart:"2026-11-17T11:00:00+00:00"};
+  p(200,[pre],d);
+  let before=mail;
+  env.sentinelleCheckWithBookingOnce("2026-11-17T10:45:00Z");
+  assert.equal(mail,before+1);assert.match(lastMail()[2],/séances publiées/);
+  before=mail;
+  env.sentinelleCheckWithBookingOnce("2026-11-17T11:01:00Z");
+  assert.equal(mail,before+1,"NOT_YET -> UNCERTAIN alerts");
+  assert.match(lastMail()[2],/vérifie MAINTENANT/);
+  const forDate=()=>bodyByChannel.filter(m=>m[0]==="gmail"&&(m[2]||"").includes(d)).length;
+  before=forDate();
+  env.sentinelleCheckWithBookingOnce("2026-11-17T11:06:00Z");
+  assert.equal(forDate(),before,"no repeat while still uncertain");
+  p(200,[],d);
+});
+test("auditorium is shown and an IMAX room is flagged even without an IMAX tag",()=>{
+  const d="2026-12-20";
+  p(200,[{...session,time:d+" 20:00:00",tags:["DEFAULT"],refCmd:"https://s.pathe.ma/fr/V98765S99100/booking"}],d);
+  env.sentinelleCheckWithBookingOnce("2026-11-17T10:50:00Z");
+  assert.match(lastMail()[1],/salle IMAX \(200 places\) — 🎯 IMAX/);
+  p(200,[],d);
+});
+test("Telegram text starts with the subject when the body has no headline",()=>{
+  assert.equal(env.sentinelleTelegramText_({subject:"🚨 [DOOMSDAY] Programmation",body:"Cinéma : X"}),"🚨 [DOOMSDAY] Programmation\n\nCinéma : X");
+  assert.equal(env.sentinelleTelegramText_({subject:"🚨 DOOMSDAY — x",body:"🚨 AVENGERS"}),"🚨 AVENGERS");
+});
+
+test("rotation: per-date freshness shows what 'healthy' really covers",()=>{
+  const fprops={m:new Map(),getProperty(k){return this.m.get(k)??null;},setProperty(k,v){this.m.set(k,String(v));}};
+  const all=["d1","d2","d3"];
+  let f=env.sentinelleDateFreshness_(fprops,all,["d1","d2"],"2026-11-20T10:00:00Z");
+  assert.equal(f.oldestAgeMinutes,null,"a never-read date makes the age unknown");
+  assert.equal(f.stale,1);
+  f=env.sentinelleDateFreshness_(fprops,all,["d3"],"2026-11-20T10:05:00Z");
+  assert.equal(f.oldestAgeMinutes,5);assert.equal(f.stale,0);
+  f=env.sentinelleDateFreshness_(fprops,all,["d3"],"2026-11-20T10:40:00Z");
+  assert.equal(f.oldestAgeMinutes,40);assert.equal(f.stale,2);
+  f=env.sentinelleDateFreshness_(fprops,["d3"],[],"2026-11-20T10:41:00Z");
+  assert.equal(JSON.stringify(Object.keys(JSON.parse(fprops.m.get("DOOMSDAY_DETAIL_FRESHNESS_V1")))),'["d3"]',"dates leaving the calendar are pruned");
+});
+test("cycle report exposes coverage age",()=>{
+  const x=env.sentinelleCheckWithBookingOnce("2026-11-17T12:00:00Z");
+  assert.ok("oldestDateCheckAgeMinutes" in x && "staleDates" in x);
 });

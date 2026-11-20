@@ -27,7 +27,11 @@ var DOOMSDAY_BOOKING_V1 = {
   anomalyPrefix: "DOOMSDAY_DETAIL_ANOMALY_V1_",
   criticalKey: "DOOMSDAY_CRITICAL_REMINDER_V1",
   maxReminders: 12,              // one per cycle: about one hour at 5 minutes
-  reminderMinGapMs: 4 * 60000
+  reminderMinGapMs: 4 * 60000,
+  freshnessKey: "DOOMSDAY_DETAIL_FRESHNESS_V1",
+  // Every candidate date must have had a healthy detailed read within this
+  // window for the heartbeat to be sent while the calendar is rotated.
+  maxDateAgeMinutes: 30
 };
 
 function sentinelleDetailedDates_(coreState, props) {
@@ -58,6 +62,7 @@ function sentinelleDetailedDates_(coreState, props) {
       String((cursor+slots)%extras.length));
   }
   var selected=anchors.concat(selectedExtras);
+  selected.allDates=anchors.concat(extras);
   // Attach enumerable metadata for diagnostic/logging, not persisted as a list.
   selected.totalDates=anchors.length+extras.length;
   selected.skippedDates=Math.max(0,extras.length-selectedExtras.length);
@@ -104,7 +109,9 @@ function sentinelleDetailedRead_(date, nowUtc, response) {
 function sentinelleDetailedSmallSnapshot_(signals) {
   // Only what the change detector needs. Alert text is built from live signals.
   var result = signals.map(function(s) {
-    return { id: s.id, open: s.bookingProposedByApi === true, imax: s.imaxByTag === true };
+    return { id: s.id, open: s.bookingProposedByApi === true,
+      imax: s.imaxByTag === true || s.imaxByAuditorium === true,
+      st: s.salesState === "UNCERTAIN" ? "U" : s.salesState === "NOT_YET" ? "N" : s.salesState === "ENDED" ? "E" : "O" };
   });
   // Script Properties cap a value at 9 KB: ~140 sessions for one date here.
   if (JSON.stringify(result).length > 8500) throw new Error("Detailed snapshot storage budget exhausted");
@@ -123,7 +130,13 @@ function sentinelleDetailedChanges_(oldSnapshot, currentSnapshot) {
 function sentinelleDetailedNewlyListed_(oldSnapshot, currentSnapshot) {
   var previous = {};
   (oldSnapshot || []).forEach(function(s) { previous[s.id] = s; });
-  return currentSnapshot.filter(function(s) { return !s.open && !previous[s.id]; });
+  // New non-open sessions, plus any known session that has just become
+  // UNCERTAIN (e.g. sales start passed but no recognised link appeared).
+  return currentSnapshot.filter(function(s) {
+    if (s.open || s.st === "E") return false;
+    var before = previous[s.id];
+    return !before || (s.st === "U" && before.st !== "U" && !before.open);
+  });
 }
 
 function sentinelleCasablancaTime_(iso) {
@@ -134,8 +147,11 @@ function sentinelleCasablancaTime_(iso) {
 }
 
 function sentinelleSessionLine_(s) {
-  return "- " + s.localTime.slice(0, 16) + " — " + s.version +
-    (s.imaxByTag ? " — IMAX (Laser non confirmé)" : " — format à confirmer");
+  var room = s.auditorium ? " — salle " + s.auditorium +
+    (s.auditoriumCapacity ? " (" + s.auditoriumCapacity + " places)" : "") : "";
+  var imax = s.imaxByAuditorium ? " — 🎯 IMAX (Laser à confirmer sur la page de réservation)"
+    : s.imaxByTag ? " — IMAX (Laser non confirmé)" : " — format à confirmer";
+  return "- " + s.localTime.slice(0, 16) + " — " + s.version + room + imax;
 }
 
 function sentinelleDetailedAlert_(date, opened) {
@@ -157,6 +173,28 @@ function sentinelleDetailedAlert_(date, opened) {
     subject: "🚨 DOOMSDAY — réservation ouverte Pathé Californie " + date,
     body: lines.join("\n")
   };
+}
+
+function sentinelleUncertainAlert_(date, uncertain) {
+  var lines = [
+    "⚠️ AVENGERS: DOOMSDAY — SÉANCES PUBLIÉES, VENTE PEUT-ÊTRE OUVERTE",
+    "Cinéma : Pathé Californie — Casablanca",
+    "Date : " + date,
+    "La fenêtre de vente n'est pas fermée, mais la sentinelle ne reconnaît pas le lien ou le statut de Pathé.",
+    "VÉRIFIE MAINTENANT sur le site ou l'appli Pathé.",
+    "Séances :"
+  ];
+  uncertain.slice(0, 10).forEach(function(s) {
+    lines.push(sentinelleSessionLine_(s) + " — statut Pathé : " + String(s.status).slice(0, 30));
+    if (s.bookingUrl) lines.push("  Lien : " + s.bookingUrl);
+  });
+  if (uncertain.length > 10) lines.push("… et " + (uncertain.length - 10) + " autres séances.");
+  if (uncertain.some(function(s) { return s.linkUntrusted; })) {
+    lines.push("Note : un lien hors domaine Pathé a été ignoré par sécurité. Passe par pathe.ma ou l'appli officielle.");
+  }
+  lines.push("Fiche officielle : " + DOOMSDAY_SENTINEL.publicPage);
+  return { subject: "⚠️ DOOMSDAY — séances publiées, vente peut-être ouverte : vérifie MAINTENANT " + date,
+    body: lines.join("\n") };
 }
 
 function sentinelleListedAlert_(date, listed) {
@@ -187,6 +225,26 @@ function sentinelleAnomalyAlert_(date, count) {
       "C'est très probablement l'ouverture des séances : vérifie tout de suite à la main.\n" +
       DOOMSDAY_SENTINEL.publicPage
   };
+}
+
+/** Records the last healthy read per date and returns the coverage age. */
+function sentinelleDateFreshness_(props, allDates, goodDates, nowIso) {
+  var nowMs = Date.parse(nowIso);
+  var stored = {};
+  try { stored = sentinelleReadJsonProperty_(props, DOOMSDAY_BOOKING_V1.freshnessKey, {}) || {}; }
+  catch (_) { stored = {}; }
+  var kept = {};
+  allDates.forEach(function(d) { if (typeof stored[d] === "number") kept[d] = stored[d]; });
+  goodDates.forEach(function(d) { kept[d] = nowMs; });
+  props.setProperty(DOOMSDAY_BOOKING_V1.freshnessKey, JSON.stringify(kept));
+  var oldest = 0, never = false, stale = 0;
+  allDates.forEach(function(d) {
+    if (typeof kept[d] !== "number") { never = true; stale++; return; }
+    var age = (nowMs - kept[d]) / 60000;
+    if (age > DOOMSDAY_BOOKING_V1.maxDateAgeMinutes) stale++;
+    if (age > oldest) oldest = age;
+  });
+  return { oldestAgeMinutes: never ? null : Math.round(oldest * 10) / 10, stale: stale };
 }
 
 /* ---- Insistent reminder for critical alerts (opening / anomaly) ---- */
@@ -270,6 +328,7 @@ function sentinelleCheckWithBookingOnce(nowUtc) {
     var baseline = sentinelleReadJsonProperty_(props, DOOMSDAY_SENTINEL.stateKey, null);
     var dates = sentinelleDetailedDates_(baseline, props);
     var good = 0, unknown = 0, failures = 0, newlyOpen = 0, newlyListed = 0, anomalies = 0;
+    var goodDates = [];
     if (dates.coveragePartial && props.getProperty(DOOMSDAY_BOOKING_V1.partialKey)!=="reported") {
       sentinelleEnqueue_(props, "⚠️ [DOOMSDAY] Couverture partielle par rotation",
         "Programmation étendue : "+dates.totalDates+" dates, "+dates.length+
@@ -322,12 +381,20 @@ function sentinelleCheckWithBookingOnce(nowUtc) {
           detail.sessions.forEach(function(s) { byId[s.id] = s; });
           var live = function(x) { return byId[x.id]; };
           var newSales = sentinelleDetailedChanges_(old, current).map(live);
-          var listed = sentinelleDetailedNewlyListed_(old, current).map(live);
+          var newlyListedAll = sentinelleDetailedNewlyListed_(old, current).map(live);
+          var uncertain = newlyListedAll.filter(function(s) { return s.salesState === "UNCERTAIN"; });
+          var listed = newlyListedAll.filter(function(s) { return s.salesState === "NOT_YET"; });
           if (newSales.length) {
             var alert = sentinelleDetailedAlert_(date, newSales);
             sentinelleEnqueue_(props, alert.subject, alert.body);
             sentinelleArmCritical_(props, now, alert.body);
             newlyOpen += newSales.length;
+          }
+          if (uncertain.length) {
+            var warn = sentinelleUncertainAlert_(date, uncertain);
+            sentinelleEnqueue_(props, warn.subject, warn.body);
+            sentinelleArmCritical_(props, now, warn.body);
+            newlyListed += uncertain.length;
           }
           if (listed.length) {
             var notice = sentinelleListedAlert_(date, listed);
@@ -336,7 +403,7 @@ function sentinelleCheckWithBookingOnce(nowUtc) {
           }
           // After enqueue, never before; any pending channel will be retried.
           props.setProperty(key, JSON.stringify(current));
-          good++;
+          good++; goodDates.push(date);
         } catch (error) {
           failures++;
           // Do not disclose details/credentials/response bodies in logs.
@@ -358,6 +425,7 @@ function sentinelleCheckWithBookingOnce(nowUtc) {
           "\nExaminer immédiatement : " + DOOMSDAY_SENTINEL.publicPage);
       }
     }
+    var freshness = sentinelleDateFreshness_(props, dates.allDates, goodDates, now);
     var sent = sentinelleFlushOutbox_(props);
     var reminder;
     try { reminder = sentinelleCriticalReminderTick_(props, now); }
@@ -370,6 +438,10 @@ function sentinelleCheckWithBookingOnce(nowUtc) {
       totalCandidateDates: dates.totalDates,
       datesNotCheckedThisCycle: dates.skippedDates,
       partialDateCoverage: dates.coveragePartial,
+      // Age of the least recently verified candidate date; null if any date
+      // has never been read successfully. Shows what "healthy" really covers.
+      oldestDateCheckAgeMinutes: freshness.oldestAgeMinutes,
+      staleDates: freshness.stale,
       validDetailedDays: good,
       unknownDetailedDays: unknown,
       failedDetailedDays: failures,
