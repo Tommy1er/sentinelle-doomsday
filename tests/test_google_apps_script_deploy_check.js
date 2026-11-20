@@ -29,16 +29,18 @@ assert.equal(fpTool.load(tmp).sentinelleCodeFingerprint_(),fresh.DOOMSDAY_DEPLOY
 console.log("PASS tamper detected; CRLF/trailing spaces tolerated");
 
 /* 3. Deployment report verdicts with mocked Google services. */
-const state=new Map();let triggers=[],deleted=[],me="owner@example.invalid",fetches=[],sentTg=0,sentMail=0;
+const state=new Map();let triggers=[],deleted=[],me="owner@example.invalid",fetches=[],sentTg=0,sentMail=0,tgFail=false,deleteFail=false,hcFail=false;
 const props={getProperty:k=>state.get(k)??null,setProperty:(k,v)=>state.set(k,String(v))};
 const trig=(h,uid)=>({getHandlerFunction:()=>h,getTriggerSource:()=>"CLOCK",getEventType:()=>"CLOCK",getUniqueId:()=>uid});
 const ok=(code,body)=>({getResponseCode:()=>code,getContentText:()=>JSON.stringify(body)});
 const env={console:{log(){}},PropertiesService:{getScriptProperties:()=>props},
-  ScriptApp:{getProjectTriggers:()=>triggers,deleteTrigger:t=>{deleted.push(t.getUniqueId());triggers=triggers.filter(x=>x!==t);}},
+  ScriptApp:{getProjectTriggers:()=>triggers,deleteTrigger:t=>{if(deleteFail)throw Error("simulated");deleted.push(t.getUniqueId());triggers=triggers.filter(x=>x!==t);}},
   Session:{getEffectiveUser:()=>({getEmail:()=>me})},
   MailApp:{getRemainingDailyQuota:()=>97,sendEmail(){sentMail++;}},
   LockService:{getUserLock:()=>({tryLock:()=>true,releaseLock(){}}),getScriptLock:()=>({tryLock:()=>true,releaseLock(){}})},
-  UrlFetchApp:{fetch(url,o){fetches.push([url,o]);if(url.includes("api.telegram.org")){sentTg++;return ok(200,{ok:true,result:{}});}return ok(200,{});}},
+  UrlFetchApp:{fetch(url,o){fetches.push([url,o]);
+    if(url.includes("api.telegram.org")){if(tgFail)return ok(500,{ok:false});sentTg++;return ok(200,{ok:true,result:{}});}
+    if(url.includes("healthchecks.io"))return ok(hcFail?503:200,{});return ok(200,{});}},
   Utilities:{DigestAlgorithm:{SHA_256:1},Charset:{UTF_8:1},
     computeDigest:(_a,t)=>Array.from(crypto.createHash("sha256").update(t,"utf8").digest()).map(b=>b>127?b-256:b)}};
 vm.createContext(env);
@@ -71,18 +73,53 @@ record("t-own","someone-else@example.invalid","ACKNOWLEDGED");assert.ok(run().pr
 record("t-own",me,"ACKNOWLEDGED",40);assert.ok(run().problems.includes("LAST_AUTOMATIC_RUN_STALE"));
 console.log("PASS deployment report verdicts and trigger-ownership evidence");
 
-/* 5. End of service: one closeout (notice + HC pause + own trigger deleted), then silent. */
+/* 5. Quota figures are labelled: wrapper stopwatch vs estimated Google billing. */
+state.set("DOOMSDAY_METRICS_V1_COUNT","2");
+state.set("DOOMSDAY_METRICS_V1_CHUNK_0",J([{t:Date.now()-600000,ms:5000,h:1},{t:Date.now()-300000,ms:7000,h:1}]));
+r=run();
+assert.equal(r.last24h.measuredWrapperRuntimeMinutes,0.2);
+assert.equal(r.last24h.estimatedGoogleBilledMinutes,Math.round((12+2*2.09)/6)/10);
+assert.ok(!("runtimeMinutes" in r.last24h),"no ambiguous 'runtimeMinutes'");
+assert.match(r.last24h.quotaNote,/Exécutions/);
+console.log("PASS quota figures labelled (wrapper vs estimated billed)");
+
+/* 6. End of service: idempotent phases. Notice CREATED once; delivery,
+      Healthchecks pause and trigger deletion retried until complete. */
+const closeout=()=>JSON.parse(state.get("DOOMSDAY_PRODUCTION_CLOSEOUT_V1"));
+const notices=()=>{const o=JSON.parse(state.get("DOOMSDAY_MONITOR_OUTBOX_V1")||"[]");return o.filter(x=>/🛑/.test(x.subject)).length;};
 state.set("HC_API_KEY","test-key");state.set("DOOMSDAY_PRODUCTION_UNTIL","2000-01-01T00:00:00Z");
-fetches=[];const tg0=sentTg,mail0=sentMail;
+state.set("DOOMSDAY_MONITOR_OUTBOX_V1","[]");
+fetches=[];deleted=[];let mail0=sentMail;
+// a) Telegram down + Healthchecks down: trigger is KEPT so the notice can be retried.
+tgFail=true;hcFail=true;
 let c=env.sentinelleProductionTick({triggerUid:"t-own"});
-assert.equal(c.status,"CLOSED_OUT");assert.equal(c.healthchecksPaused,true);assert.equal(c.triggersDeleted,1);
-assert.equal(J(deleted),J(["t-own"]));assert.equal(sentTg,tg0+1);assert.equal(sentMail,mail0+1);
+assert.equal(c.status,"CLOSEOUT_INCOMPLETE");assert.equal(c.reason,"WAITING_NOTICE_DELIVERY");
+assert.equal(c.healthchecksPaused,false);assert.equal(deleted.length,0);assert.equal(notices(),1);
+assert.equal(sentMail,mail0+1,"Gmail delivered");
+assert.ok(run().problems.includes("CLOSEOUT_INCOMPLETE_WAITING_NOTICE_DELIVERY"));
+// b) Channels recover but trigger deletion fails: retried, notice not re-created.
+tgFail=false;hcFail=false;deleteFail=true;let tg0=sentTg;
+c=env.sentinelleProductionTick({triggerUid:"t-own"});
+assert.equal(c.status,"CLOSEOUT_INCOMPLETE");assert.equal(c.reason,"TRIGGER_DELETION_FAILED");
+assert.equal(sentTg,tg0+1,"pending Telegram notice delivered on retry");assert.equal(sentMail,mail0+1,"Gmail not re-sent");
+assert.equal(c.healthchecksPaused,true,"Healthchecks pause retried");
+// c) Deletion works: CLOSED_OUT; later calls are silent no-ops.
+deleteFail=false;
+c=env.sentinelleProductionTick({triggerUid:"t-own"});
+assert.equal(c.status,"CLOSED_OUT");assert.equal(c.reason,"COMPLETE");assert.equal(J(deleted),J(["t-own"]));
+assert.equal(closeout().attempts,3);
+c=env.sentinelleProductionTick({triggerUid:"t-own"});assert.equal(c.status,"EXPIRED");
+assert.equal(sentTg,tg0+1);assert.equal(sentMail,mail0+1);
+assert.ok(!fetches.some(([u])=>u.includes("pathe.ma")),"no Pathé read after the end date");
 const pause=fetches.find(([u])=>u.includes("healthchecks.io"));
 assert.equal(pause[0],"https://healthchecks.io/api/v3/checks/12345678-1234-1234-1234-123456789abc/pause");
 assert.equal(pause[1].headers["X-Api-Key"],"test-key");
-assert.ok(!fetches.some(([u])=>u.includes("pathe.ma")),"no Pathé read after the end date");
-c=env.sentinelleProductionTick({triggerUid:"t-own"});
-assert.equal(c.status,"EXPIRED");assert.equal(sentTg,tg0+1,"closeout notice sent once");
-state.delete("HC_API_KEY");state.delete("DOOMSDAY_PRODUCTION_CLOSEOUT_V1");triggers=[trig("sentinelleProductionTick","t2")];
-c=env.sentinelleProductionTick({});assert.equal(c.healthchecksPaused,false,"without key: notice tells the user to pause");
-console.log("PASS end-of-service closeout (once, own trigger deleted, Healthchecks paused when key present)");
+// d) A channel that never recovers cannot keep the trigger alive beyond 24 h.
+state.delete("DOOMSDAY_PRODUCTION_CLOSEOUT_V1");state.set("DOOMSDAY_MONITOR_OUTBOX_V1","[]");
+triggers=[trig("sentinelleProductionTick","t3")];tgFail=true;
+c=env.sentinelleProductionTick({});assert.equal(c.reason,"WAITING_NOTICE_DELIVERY");
+const rec=closeout();rec.startedAtUtc=new Date(Date.now()-25*3600000).toISOString();
+state.set("DOOMSDAY_PRODUCTION_CLOSEOUT_V1",J(rec));
+c=env.sentinelleProductionTick({});
+assert.equal(c.status,"CLOSED_OUT");assert.equal(c.reason,"DEADLINE_NOTICE_UNDELIVERED");assert.equal(triggers.length,0);
+console.log("PASS end-of-service closeout: idempotent phases, retries, 24 h ceiling");
