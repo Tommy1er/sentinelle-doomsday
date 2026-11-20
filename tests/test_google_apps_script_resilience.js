@@ -85,3 +85,15 @@ assert.ok(queue.length<=4,"outbox bounded");
 assert.ok(bytes<9000,"outbox must fit Apps Script property value cap");
 assert.ok(queue[queue.length-1].body.includes("https://www.pathe.ma/"),"latest alert keeps the official URL");
 console.log("PASS: schema fail-closed, empty debounce, immediate positives, bounded UTF-8 outbox");
+
+// 2026-11-20 fail-open additions
+{
+  const extra = env.sentinelleNormalize_({ meta: { v: 2 }, "cinema-pathe-californie": { days: {
+    "2026-12-16": { versions: ["vf-ma"], tags: ["imax"], specialShowtime: true } } } });
+  assert.equal(extra.days.length, 1, "extra root field next to our cinema must not blind the monitor");
+  assert.equal(extra.days[0].special, true);
+  const plain = env.sentinelleNormalize_({ "cinema-pathe-californie": { days: {
+    "2026-12-16": { versions: ["vf-ma"], tags: [], specialShowtime: false } } } });
+  assert.equal("special" in plain.days[0], false, "unchanged snapshot shape when not special");
+  console.log("PASS: extra root keys tolerated with target cinema; avant-première flag kept");
+}
