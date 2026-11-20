@@ -260,3 +260,20 @@ test("Telegram text starts with the subject when the body has no headline",()=>{
   assert.equal(env.sentinelleTelegramText_({subject:"🚨 DOOMSDAY — x",body:"🚨 AVENGERS"}),"🚨 AVENGERS");
 });
 
+test("rotation: per-date freshness shows what 'healthy' really covers",()=>{
+  const fprops={m:new Map(),getProperty(k){return this.m.get(k)??null;},setProperty(k,v){this.m.set(k,String(v));}};
+  const all=["d1","d2","d3"];
+  let f=env.sentinelleDateFreshness_(fprops,all,["d1","d2"],"2026-11-20T10:00:00Z");
+  assert.equal(f.oldestAgeMinutes,null,"a never-read date makes the age unknown");
+  assert.equal(f.stale,1);
+  f=env.sentinelleDateFreshness_(fprops,all,["d3"],"2026-11-20T10:05:00Z");
+  assert.equal(f.oldestAgeMinutes,5);assert.equal(f.stale,0);
+  f=env.sentinelleDateFreshness_(fprops,all,["d3"],"2026-11-20T10:40:00Z");
+  assert.equal(f.oldestAgeMinutes,40);assert.equal(f.stale,2);
+  f=env.sentinelleDateFreshness_(fprops,["d3"],[],"2026-11-20T10:41:00Z");
+  assert.equal(JSON.stringify(Object.keys(JSON.parse(fprops.m.get("DOOMSDAY_DETAIL_FRESHNESS_V1")))),'["d3"]',"dates leaving the calendar are pruned");
+});
+test("cycle report exposes coverage age",()=>{
+  const x=env.sentinelleCheckWithBookingOnce("2026-11-17T12:00:00Z");
+  assert.ok("oldestDateCheckAgeMinutes" in x && "staleDates" in x);
+});

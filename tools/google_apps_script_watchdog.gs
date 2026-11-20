@@ -11,8 +11,12 @@ function sentinelleHealthyForWatchdog_(r) {
     Number.isInteger(r.datesChecked) && r.datesChecked>0 &&
     r.validDetailedDays===r.datesChecked &&
     r.unknownDetailedDays===0 && r.failedDetailedDays===0 &&
-    // Rotation over >20 dates is a known, already-notified condition. It must
-    // not silence the heartbeat for weeks (watchdog permanently DOWN = ignored).
+    // Rotation over >20 dates: "healthy" means EVERY candidate date had a
+    // healthy read within maxDateAgeMinutes (not just this cycle's subset).
+    (r.datesNotCheckedThisCycle===0 ||
+      (typeof r.oldestDateCheckAgeMinutes==="number" &&
+       r.oldestDateCheckAgeMinutes<=(typeof DOOMSDAY_BOOKING_V1==="object" ?
+        DOOMSDAY_BOOKING_V1.maxDateAgeMinutes : 30))) &&
     !!r.delivery && r.delivery.pending===0;
 }
 function sentinelleWatchdogError_(reason, httpStatus) {

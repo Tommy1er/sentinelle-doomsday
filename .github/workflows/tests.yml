@@ -112,7 +112,8 @@ jobs:
           node --check < tools/google_apps_script_production.gs
           node tests/test_google_apps_script_production.js
 
-      - name: Read-only deployment report and production end date (offline)
+      - name: Deployment evidence, code fingerprint and end-of-service closeout (offline)
         run: |
           node --check < tools/google_apps_script_deploy_check.gs
           node tests/test_google_apps_script_deploy_check.js
+          echo "Expected Apps Script code fingerprint: $(node tools/compute_code_fingerprint.js)"
