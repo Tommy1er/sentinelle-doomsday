@@ -92,8 +92,8 @@ function sentinelleInstrumentedPilotCycle() {
     if(window.status==="RUNNING") {
       sentinelleEnqueue_(props,"[DOOMSDAY] Pilote 24 h terminé",
         "La fenêtre de collecte du pilote est terminée. Les lectures Pathé et heartbeats sont arrêtés."+
-        "\\nRevoir les métriques, supprimer le déclencheur et mettre Healthchecks en pause."+
-        "\\nUne alerte DOWN après cette fin programmée correspond à cet arrêt attendu, pas à une panne Pathé.");
+        "\nRevoir les métriques, supprimer le déclencheur et mettre Healthchecks en pause."+
+        "\nUne alerte DOWN après cette fin programmée correspond à cet arrêt attendu, pas à une panne Pathé.");
       window.status="EXPIRED";
       props.setProperty("DOOMSDAY_PILOT_WINDOW_V1",JSON.stringify(window));
     }

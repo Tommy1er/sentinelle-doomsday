@@ -39,11 +39,15 @@ function sentinelleNormalize_(payload) {
   if (!sentinellePlainObject_(payload)) throw new Error("Invalid root JSON object");
   // Fail closed on unexpected API wrappers or error payloads. HTTP 200 is
   // not proof that the endpoint returned a valid programming document.
+  // Fail-open exception: an extra root field next to our cinema must not
+  // blind the monitor. Without our cinema, unknown keys remain an error page.
   var unknownKeys = Object.keys(payload).filter(function(key) {
     return !/^cinema-[a-z0-9-]+$/.test(key);
   });
-  if (unknownKeys.length) throw new Error("Unexpected API root schema");
   var cinema = payload[DOOMSDAY_SENTINEL.cinemaKey];
+  if (unknownKeys.length && (cinema === undefined || cinema === null)) {
+    throw new Error("Unexpected API root schema");
+  }
   if (cinema === null) throw new Error("Null target cinema data");
   if (cinema === undefined) {
     return { status: "NO_PROGRAMME_FOR_CINEMA", cinema: DOOMSDAY_SENTINEL.cinemaKey, days: [] };
@@ -57,11 +61,15 @@ function sentinelleNormalize_(payload) {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new Error("Unexpected date key in cinema.days");
     var day = cinema.days[date];
     if (!sentinellePlainObject_(day)) throw new Error("Invalid day object");
-    return {
+    var normalized = {
       date: date,
       versions: sentinelleUniqueStrings_(day.versions, "versions"),
       tags: sentinelleUniqueStrings_(day.tags, "tags")
     };
+    // Avant-premières are flagged per day; only stored when true so that
+    // existing snapshots stay byte-identical (no false "modified" alert).
+    if (day.specialShowtime === true) normalized.special = true;
+    return normalized;
   });
   return {
     status: days.length ? "DATES_PROGRAMMED" : "NO_PROGRAMME_FOR_CINEMA",
@@ -93,7 +101,8 @@ function sentinelleDiff_(before, after) {
 
 function sentinelleFormatDay_(day) {
   return day.date + " | versions : " + (day.versions.join(", ") || "inconnues") +
-    " | tags : " + (day.tags.join(", ") || "non renseignés");
+    " | tags : " + (day.tags.join(", ") || "non renseignés") +
+    (day.special ? " | SÉANCE SPÉCIALE / AVANT-PREMIÈRE" : "");
 }
 
 function sentinelleEventMessage_(delta) {
