@@ -1,6 +1,7 @@
-// PATCH IMAX PRIORITE - 2026-11-26. Remplace quelques fonctions de Code.gs.
+// PATCH IMAX PRIORITE v2 - 2026-11-26. Remplace quelques fonctions de Code.gs.
 // Pour revenir en arriere : supprimer ce fichier, ou propriete DOOMSDAY_IMAX_PRIORITY = false.
-var DOOMSDAY_IMAX_PATCH = { version: "imax-priority-20261126", key: "DOOMSDAY_IMAX_PRIORITY" };
+var DOOMSDAY_IMAX_PATCH = { version: "imax-priority-v2-20261126", key: "DOOMSDAY_IMAX_PRIORITY",
+mailReminderSteps: [1, 2, 3, 6, 9, 12], mailQuotaReserve: 5 };
 
 function sentinelleImaxPriorityOn_() {
 return PropertiesService.getScriptProperties().getProperty(DOOMSDAY_IMAX_PATCH.key) !== "false";
