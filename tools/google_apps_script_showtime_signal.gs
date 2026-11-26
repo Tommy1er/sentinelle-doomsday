@@ -101,7 +101,9 @@ function patheShowtimeSignalsV1(payload, nowUtc) {
       bookingUrl: link, linkUntrusted: linkUntrusted, filmVid: vid ? vid[1] : null,
       bookingProposedByApi: proposed, salesState: salesState,
       auditorium: auditorium, auditoriumCapacity: capacity,
-      imaxByTag: tags.some(function(t) { return t.toLowerCase() === "imax"; }),
+      // Pathé tags premium formats in lower case (observed: "4dx" with hall "4DX").
+      // Accept any spelling that contains imax ("imax", "IMAX", "imax-laser"…).
+      imaxByTag: tags.some(function(t) { return /imax/i.test(t); }) || /imax/i.test(version),
       imaxByAuditorium: auditorium !== null && /imax/i.test(auditorium),
       imaxLaserConfirmed: false, seatsKnown: false
     };
