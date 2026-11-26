@@ -36,7 +36,7 @@ var DOOMSDAY_DEPLOY_EXPECTED = {
     "patheShowtimeSignalsV1", "sentinelleDetailedDates_", "sentinelleDetailedRequest_",
     "sentinelleDetailedRead_", "sentinelleDetailedSmallSnapshot_", "sentinelleDetailedChanges_",
     "sentinelleDetailedNewlyListed_", "sentinelleCasablancaTime_", "sentinelleSessionLine_",
-    "sentinelleDetailedAlert_", "sentinelleUncertainAlert_", "sentinelleListedAlert_",
+    "sentinelleDetailedAlert_", "sentinelleIsImax_", "sentinelleImaxAlert_", "sentinelleUncertainAlert_", "sentinelleListedAlert_",
     "sentinelleAnomalyAlert_", "sentinelleDateFreshness_", "sentinelleTelegramApi_",
     "sentinelleArmCritical_", "sentinelleCriticalReminderTick_",
     "sentinelleCheckWithBookingOnce", "sentinelleHealthyForWatchdog_",
@@ -51,7 +51,7 @@ var DOOMSDAY_DEPLOY_EXPECTED = {
   fingerprintConfigs: ["DOOMSDAY_SENTINEL", "PATHE_TRUSTED_BOOKING_HOSTS", "DOOMSDAY_BOOKING_V1",
     "DOOMSDAY_METRICS_V1", "DOOMSDAY_PRODUCTION_V1"],
   // SHA-256 of the files at this commit. CI fails if the code changes without it.
-  fingerprint: "aa0f0b62da730339b07e14007deca75aed063afe861d063310346f88c1948b45",
+  fingerprint: "1cd9653f4fd90cd8433e40f5d69b44facfc1d83974dc0e4da7a402670c008824",
   maxAutomaticRunAgeMinutes: 15,
   // Calibrated on the 24 h pilot: Google billed 3897 s for 288 trigger runs
   // while the wrapper measured 3295.7 s => ~2.09 s of per-run overhead that

@@ -24,6 +24,11 @@ var DOOMSDAY_BOOKING_V1 = {
   detailBatchSize: 8,
   cursorKey: "DOOMSDAY_DETAIL_ROTATION_CURSOR_V1",
   partialKey: "DOOMSDAY_DETAIL_PARTIAL_NOTICE_V1",
+  // 2026-11-26: standard halls are already on sale; only IMAX matters now.
+  // IMAX sessions get their own subject and the insistent reminder;
+  // additional standard sessions are still mailed, quietly, without reminder.
+  // Set Script Property DOOMSDAY_IMAX_PRIORITY=false to restore the old behaviour.
+  imaxPriorityKey: "DOOMSDAY_IMAX_PRIORITY",
   anomalyPrefix: "DOOMSDAY_DETAIL_ANOMALY_V1_",
   criticalKey: "DOOMSDAY_CRITICAL_REMINDER_V1",
   maxReminders: 12,              // one per cycle: about one hour at 5 minutes
@@ -171,6 +176,31 @@ function sentinelleDetailedAlert_(date, opened) {
   lines.push("Fiche officielle : " + DOOMSDAY_SENTINEL.publicPage);
   return {
     subject: "🚨 DOOMSDAY — réservation ouverte Pathé Californie " + date,
+    body: lines.join("\n")
+  };
+}
+
+function sentinelleIsImax_(s) { return s.imaxByTag === true || s.imaxByAuditorium === true; }
+
+function sentinelleImaxAlert_(date, sessions, opened) {
+  var lines = [
+    opened ? "🎬🚨 IMAX OUVERT — AVENGERS: DOOMSDAY — PATHÉ CALIFORNIE"
+           : "🎬 IMAX PUBLIÉ — AVENGERS: DOOMSDAY — PATHÉ CALIFORNIE (ventes pas encore ouvertes)",
+    "Date : " + date,
+    opened ? "Réserve MAINTENANT : les meilleures places IMAX partent en premier."
+           : "Ouverture des ventes annoncée : " + sentinelleCasablancaTime_(sessions.map(function(s) {
+               return s.reservabilityStart; }).filter(function(x) { return !!x; }).sort()[0] || ""),
+    "Séances IMAX :"
+  ];
+  sessions.slice(0, 10).forEach(function(s) {
+    lines.push(sentinelleSessionLine_(s));
+    if (s.bookingUrl) lines.push("  Réserver : " + s.bookingUrl);
+  });
+  if (sessions.length > 10) lines.push("… et " + (sessions.length - 10) + " autres séances IMAX.");
+  lines.push("Laser : à confirmer sur la page de réservation. Aucun achat automatique.");
+  lines.push("Fiche officielle : " + DOOMSDAY_SENTINEL.publicPage);
+  return {
+    subject: (opened ? "🎬🚨 IMAX OUVERT — Doomsday Pathé Californie " : "🎬 IMAX publié — Doomsday Pathé Californie ") + date,
     body: lines.join("\n")
   };
 }
@@ -327,7 +357,7 @@ function sentinelleCheckWithBookingOnce(nowUtc) {
   try {
     var baseline = sentinelleReadJsonProperty_(props, DOOMSDAY_SENTINEL.stateKey, null);
     var dates = sentinelleDetailedDates_(baseline, props);
-    var good = 0, unknown = 0, failures = 0, newlyOpen = 0, newlyListed = 0, anomalies = 0;
+    var good = 0, unknown = 0, failures = 0, newlyOpen = 0, newlyListed = 0, anomalies = 0, newImax = 0;
     var goodDates = [];
     if (dates.coveragePartial && props.getProperty(DOOMSDAY_BOOKING_V1.partialKey)!=="reported") {
       sentinelleEnqueue_(props, "⚠️ [DOOMSDAY] Couverture partielle par rotation",
@@ -384,10 +414,33 @@ function sentinelleCheckWithBookingOnce(nowUtc) {
           var newlyListedAll = sentinelleDetailedNewlyListed_(old, current).map(live);
           var uncertain = newlyListedAll.filter(function(s) { return s.salesState === "UNCERTAIN"; });
           var listed = newlyListedAll.filter(function(s) { return s.salesState === "NOT_YET"; });
+          var imaxPriority = props.getProperty(DOOMSDAY_BOOKING_V1.imaxPriorityKey) !== "false";
+          var imaxOpen = newSales.filter(sentinelleIsImax_);
+          var imaxListed = listed.filter(sentinelleIsImax_);
+          if (imaxPriority) {
+            if (imaxOpen.length) {
+              var imaxAlert = sentinelleImaxAlert_(date, imaxOpen, true);
+              sentinelleEnqueue_(props, imaxAlert.subject, imaxAlert.body);
+              sentinelleArmCritical_(props, now, imaxAlert.body);
+              newImax += imaxOpen.length;
+            }
+            if (imaxListed.length) {
+              var imaxNotice = sentinelleImaxAlert_(date, imaxListed, false);
+              sentinelleEnqueue_(props, imaxNotice.subject, imaxNotice.body);
+              sentinelleArmCritical_(props, now, imaxNotice.body);
+              newImax += imaxListed.length;
+            }
+            // Standard sessions: still reported, but no reminder and a calm subject.
+            newSales = newSales.filter(function(x) { return !sentinelleIsImax_(x); });
+            listed = listed.filter(function(x) { return !sentinelleIsImax_(x); });
+          }
           if (newSales.length) {
             var alert = sentinelleDetailedAlert_(date, newSales);
+            if (imaxPriority) {
+              alert.subject = "ℹ️ DOOMSDAY — séances classiques ajoutées (pas IMAX) " + date;
+            }
             sentinelleEnqueue_(props, alert.subject, alert.body);
-            sentinelleArmCritical_(props, now, alert.body);
+            if (!imaxPriority) sentinelleArmCritical_(props, now, alert.body);
             newlyOpen += newSales.length;
           }
           if (uncertain.length) {
@@ -447,6 +500,7 @@ function sentinelleCheckWithBookingOnce(nowUtc) {
       failedDetailedDays: failures,
       newReservableSessions: newlyOpen,
       newlyListedSessions: newlyListed,
+      newImaxSessions: newImax,
       anomalyDetailedDays: anomalies,
       criticalReminder: reminder,
       delivery: sent,

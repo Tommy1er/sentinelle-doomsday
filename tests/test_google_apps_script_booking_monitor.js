@@ -15,6 +15,7 @@ const props={
 state.set("TG_BOT_TOKEN","TEST_ONLY");
 state.set("TG_CHAT_ID","1234567");
 state.set("ALERT_EMAIL_TO","test@example.invalid");
+state.set("DOOMSDAY_IMAX_PRIORITY","false"); // legacy scenarios below; IMAX-priority scenario at the end
 const nowBefore="2026-11-17T09:59:59Z";
 const nowAfter="2026-11-17T10:00:00Z";
 const sessionDate="2026-12-16";
@@ -277,3 +278,46 @@ test("cycle report exposes coverage age",()=>{
   const x=env.sentinelleCheckWithBookingOnce("2026-11-17T12:00:00Z");
   assert.ok("oldestDateCheckAgeMinutes" in x && "staleDates" in x);
 });
+
+// ---- 2026-11-26: real situation — standard halls on sale, IMAX added later ----
+test("IMAX priority: extra standard sessions are calm, IMAX gets its own alert and reminder",()=>{
+  state.set("DOOMSDAY_IMAX_PRIORITY","true");
+  const d="2026-12-18";
+  const std=(t,hall,s,tags=["DEFAULT","pmr"])=>({time:d+" "+t,version:"vostfr-ma",tags,status:"available",
+    reservabilityStart:"2026-09-08T13:52:03+00:00",reservabilityEnd:d+"T23:00:00+00:00",
+    refCmd:"https://s.pathe.ma/fr/V5401S"+s+"/booking",auditoriumName:hall,auditoriumCapacity:"235",isMovie:true});
+  const base=[std("10:30:00","1",60001),std("16:00:00","4DX",60002,["4dx","DEFAULT","pmr"])];
+  p(200,base,d);
+  state.set("DOOMSDAY_CRITICAL_REMINDER_V1",JSON.stringify({acked:true}));
+  let x=env.sentinelleCheckWithBookingOnce("2026-11-26T18:00:00Z");
+  assert.equal(x.newImaxSessions,0);
+  assert.match(lastMail()[2],/séances classiques ajoutées \(pas IMAX\)/);
+  assert.equal(critical().acked,true,"standard sessions must not arm the reminder");
+  const m0=mail;
+  p(200,base.concat([std("20:00:00","IMAX",60003,["DEFAULT","imax","pmr"])]),d);
+  x=env.sentinelleCheckWithBookingOnce("2026-11-26T18:05:00Z");
+  assert.equal(x.newImaxSessions,1);
+  assert.equal(mail,m0+1);
+  assert.match(lastMail()[2],/^🎬🚨 IMAX OUVERT — Doomsday Pathé Californie 2026-12-18$/);
+  assert.match(lastMail()[1],/V5401S60003\/booking/);
+  assert.equal(critical().acked,false,"IMAX arms the insistent reminder");
+  x=env.sentinelleCheckWithBookingOnce("2026-11-26T18:06:00Z");
+  assert.equal(x.newImaxSessions,0,"no duplicate");
+});
+test("IMAX recognised by tag alone (hall named with a number) and listed before sales",()=>{
+  const d="2026-12-19";
+  p(200,[{time:d+" 19:00:00",version:"vf-ma",tags:["IMAX-LASER"],status:"available",
+    reservabilityStart:"2026-11-27T10:00:00+00:00",reservabilityEnd:d+"T19:20:00+00:00",
+    refCmd:"https://s.pathe.ma/fr/V5401S60010/booking",auditoriumName:"7",auditoriumCapacity:"400",isMovie:true}],d);
+  const x=env.sentinelleCheckWithBookingOnce("2026-11-26T18:10:00Z");
+  assert.equal(x.newImaxSessions,1);
+  assert.match(lastMail()[2],/^🎬 IMAX publié/);
+  assert.match(lastMail()[1],/2026-11-27 11:00 \(heure de Casablanca\)/);
+});
+test("/cinemas: a day gaining an imax tag gets an IMAX subject",()=>{
+  const before={days:[{date:"2026-12-16",versions:["vf-ma"],tags:["4dx","DEFAULT","pmr"]}]};
+  const after={days:[{date:"2026-12-16",versions:["vf-ma"],tags:["4dx","DEFAULT","imax","pmr"]}]};
+  const msg=env.sentinelleEventMessage_(env.sentinelleDiff_(before,after));
+  assert.match(msg.subject,/IMAX apparaît/);
+});
+console.log("PASS: IMAX priority scenarios");

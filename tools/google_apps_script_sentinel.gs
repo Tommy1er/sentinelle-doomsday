@@ -106,8 +106,12 @@ function sentinelleFormatDay_(day) {
 }
 
 function sentinelleEventMessage_(delta) {
+  var imaxDays = delta.added.concat(delta.updated).filter(function(day) {
+    return day.tags.concat(day.versions).some(function(t) { return /imax/i.test(t); });
+  });
   var title = delta.type === "PROGRAMME_REMOVED" ?
     "⚠️ [DOOMSDAY] Programmation retirée" :
+    imaxDays.length ? "🎬 [DOOMSDAY] IMAX apparaît dans la programmation Pathé Californie" :
     "🚨 [DOOMSDAY] Programmation détectée ou modifiée";
   var lines = [
     "Cinéma : Pathé Californie — Casablanca",
